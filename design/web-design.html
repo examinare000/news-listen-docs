@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AudioNews — Webフロントエンド設計書</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e2e4ed; --muted: #8b8fa8; --accent: #7c6af7;
+    --accent2: #4fc3f7; --green: #4caf82; --orange: #f0a050; --red: #e05c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Pro Text', -apple-system, sans-serif; font-size: 14px; line-height: 1.7; }
+  nav { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: var(--surface); border-right: 1px solid var(--border); padding: 24px 16px; overflow-y: auto; }
+  nav a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 13px; margin-bottom: 2px; transition: all .15s; }
+  nav a:hover { background: rgba(124,106,247,.15); color: var(--accent); }
+  nav .nav-group { margin-bottom: 20px; }
+  nav .nav-doc { font-size: 11px; font-weight: 600; color: var(--accent2); padding: 4px 10px; margin-bottom: 4px; }
+  main { margin-left: 220px; padding: 48px 56px; max-width: 960px; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; color: var(--accent2); }
+  h4 { font-size: 13px; font-weight: 600; margin: 20px 0 8px; color: var(--orange); }
+  p { margin-bottom: 12px; color: #c8cad8; }
+  .meta { display: flex; gap: 16px; margin-bottom: 40px; flex-wrap: wrap; }
+  .badge { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 4px 14px; font-size: 12px; color: var(--muted); }
+  .badge span { color: var(--text); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 13px; }
+  th { background: var(--surface); color: var(--muted); font-weight: 600; text-align: left; padding: 10px 14px; border: 1px solid var(--border); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+  td { padding: 10px 14px; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-x: auto; font-size: 12px; line-height: 1.6; margin: 16px 0 24px; font-family: 'SF Mono', 'Fira Code', monospace; }
+  p code, td code, li code { background: var(--surface); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+  .svg-diagram { display: block; width: 100%; margin: 16px 0 24px; border-radius: 8px; border: 1px solid var(--border); }
+  ul, ol { padding-left: 20px; margin-bottom: 12px; color: #c8cad8; }
+  li { margin-bottom: 5px; }
+  a { color: var(--accent2); }
+  .note { background: rgba(124,106,247,.08); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 12px 0; font-size: 13px; }
+  .screen { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin: 16px 0; }
+  .screen h4 { margin: 0 0 12px; font-size: 14px; color: var(--accent2); display: flex; align-items: center; gap: 8px; }
+  .screen-path { font-size: 12px; color: var(--muted); font-family: monospace; background: rgba(255,255,255,.05); padding: 2px 8px; border-radius: 4px; }
+  .component-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
+  .comp { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; }
+  .comp strong { color: var(--text); display: block; margin-bottom: 4px; font-size: 12px; }
+  .comp span { color: var(--muted); font-size: 11px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h4 { color: var(--accent2); margin: 0 0 8px; font-size: 13px; }
+  .card ul { font-size: 13px; }
+  .tag-client { background: rgba(76,175,130,.15); color: var(--green); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .tag-server { background: rgba(124,106,247,.15); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-group">
+    <div class="nav-doc">全体概要</div>
+    <a href="index.html">システム概要</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-doc">Webフロントエンド設計</div>
+    <a href="#overview">概要・技術スタック</a>
+    <a href="#routing">ルーティング・画面一覧</a>
+    <a href="#screens">各画面の設計</a>
+    <a href="#components">共通コンポーネント</a>
+    <a href="#state">状態管理</a>
+    <a href="#audio">音声再生設計</a>
+    <a href="#api-client">API クライアント</a>
+    <a href="#filestructure">ファイル構成</a>
+    <a href="#deploy">デプロイ</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-doc">他の設計書</div>
+    <a href="backend-design.html">バックエンド</a>
+    <a href="ios-design.html">iOS</a>
+  </div>
+</nav>
+
+<main>
+  <h1>Web フロントエンド設計書</h1>
+  <p>Next.js (App Router) による Web アプリケーション設計。iOS アプリに先行してリリースし、同一バックエンド API を使用する。</p>
+  <div class="meta">
+    <div class="badge">フレームワーク <span>Next.js 15 (App Router)</span></div>
+    <div class="badge">言語 <span>TypeScript</span></div>
+    <div class="badge">スタイル <span>Tailwind CSS</span></div>
+    <div class="badge">ホスティング <span>Cloud Run (GCP)</span></div>
+  </div>
+
+  <!-- ======= OVERVIEW ======= -->
+  <h2 id="overview">1. 概要・技術スタック</h2>
+
+  <table>
+    <tr><th>項目</th><th>選定技術</th><th>理由</th></tr>
+    <tr><td>フレームワーク</td><td>Next.js 15 (App Router)</td><td>SSR 対応・型安全・ファイルベースルーティング</td></tr>
+    <tr><td>言語</td><td>TypeScript</td><td>API レスポンス型の共有・バグ早期発見</td></tr>
+    <tr><td>スタイリング</td><td>Tailwind CSS v4</td><td>ユーティリティファーストで高速開発</td></tr>
+    <tr><td>音声再生</td><td>HTML5 Audio API（ライブラリなし）</td><td>追加依存なし・速度制御・シーク標準対応</td></tr>
+    <tr><td>状態管理</td><td>React Context + useReducer</td><td>グローバル状態（APIキー・再生状態）のみ管理。Zustand 等不要な規模。</td></tr>
+    <tr><td>API 通信</td><td>fetch API（カスタムラッパー）</td><td>追加ライブラリ不要。App Router の Server Components とも相性良い。</td></tr>
+    <tr><td>設定永続化</td><td>localStorage</td><td>APIキー・デフォルト設定をブラウザに保存</td></tr>
+    <tr><td>コンテナ</td><td>Docker (node:22-alpine)</td><td>Cloud Run へのデプロイに統一</td></tr>
+  </table>
+
+  <!-- ======= ROUTING ======= -->
+  <h2 id="routing">2. ルーティング・画面一覧</h2>
+
+  <svg class="svg-diagram" viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
+    <!-- Root layout -->
+    <rect x="16" y="20" width="788" height="280" rx="10" fill="#141720" stroke="#2a2d3e" stroke-width="1"/>
+    <rect x="16" y="20" width="788" height="44" rx="10" fill="#1a1d27"/>
+    <rect x="16" y="52" width="788" height="12" fill="#1a1d27"/>
+    <text x="32" y="47" fill="#4fc3f7" font-size="12" font-family="SF Mono,monospace" font-weight="700">app/layout.tsx</text>
+    <text x="340" y="47" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif">ルートレイアウト — NavigationBar + AudioPlayerBar（全ページ共通）</text>
+    <!-- page.tsx -->
+    <rect x="36" y="68" width="240" height="40" rx="6" fill="#1e1808" stroke="#f0a050" stroke-width="1"/>
+    <text x="56" y="85" fill="#f0a050" font-size="11" font-family="SF Mono,monospace">page.tsx  →  /</text>
+    <text x="56" y="101" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">未設定時: SetupModal 表示</text>
+    <!-- feed -->
+    <rect x="36" y="122" width="240" height="40" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="56" y="139" fill="#a89cf5" font-size="11" font-family="SF Mono,monospace">feed/page.tsx  →  /feed</text>
+    <text x="56" y="155" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">記事フィード一覧 · Star / Dismiss</text>
+    <!-- podcast parent -->
+    <rect x="310" y="68" width="240" height="94" rx="6" fill="#0f1e28" stroke="#4fc3f7" stroke-width="1.5"/>
+    <text x="330" y="85" fill="#4fc3f7" font-size="11" font-family="SF Mono,monospace">podcast/</text>
+    <rect x="322" y="94" width="214" height="30" rx="4" fill="#0a1620" stroke="#4fc3f7" stroke-width="1"/>
+    <text x="340" y="111" fill="#c8cad8" font-size="10" font-family="SF Mono,monospace">page.tsx  →  /podcast</text>
+    <rect x="322" y="130" width="214" height="26" rx="4" fill="#0a1620" stroke="#4fc3f7" stroke-width="1"/>
+    <text x="340" y="147" fill="#c8cad8" font-size="10" font-family="SF Mono,monospace">[id]/page.tsx  →  /podcast/:id</text>
+    <!-- subscriptions -->
+    <rect x="36" y="176" width="240" height="54" rx="6" fill="#1e2b1e" stroke="#4caf82" stroke-width="2"/>
+    <text x="56" y="196" fill="#4caf82" font-size="11" font-family="SF Mono,monospace" font-weight="700">subscriptions/page.tsx</text>
+    <text x="56" y="212" fill="#c8cad8" font-size="10" font-family="-apple-system,sans-serif">  →  /subscriptions</text>
+    <text x="56" y="225" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">RSS 購読管理（一覧・追加・削除）</text>
+    <!-- settings -->
+    <rect x="310" y="176" width="240" height="54" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1"/>
+    <text x="330" y="196" fill="#c8cad8" font-size="11" font-family="SF Mono,monospace">settings/page.tsx</text>
+    <text x="330" y="212" fill="#c8cad8" font-size="10" font-family="-apple-system,sans-serif">  →  /settings</text>
+    <text x="330" y="225" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">難易度・速度 · API キー設定</text>
+    <!-- nav labels -->
+    <rect x="584" y="68" width="196" height="162" rx="6" fill="#141720" stroke="#2a2d3e" stroke-width="1"/>
+    <text x="682" y="88" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">NavigationBar</text>
+    <rect x="600" y="98" width="164" height="26" rx="4" fill="#1e1a30" stroke="#7c6af7" stroke-width="1"/>
+    <text x="682" y="115" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">Feed</text>
+    <rect x="600" y="130" width="164" height="26" rx="4" fill="#0f1e28" stroke="#4fc3f7" stroke-width="1"/>
+    <text x="682" y="147" fill="#4fc3f7" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">Podcast</text>
+    <rect x="600" y="162" width="164" height="26" rx="4" fill="#1e2b1e" stroke="#4caf82" stroke-width="2"/>
+    <text x="682" y="179" fill="#4caf82" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Subscriptions</text>
+    <rect x="600" y="194" width="164" height="26" rx="4" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1"/>
+    <text x="682" y="211" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">Settings</text>
+    <!-- AudioPlayerBar -->
+    <rect x="584" y="236" width="196" height="32" rx="4" fill="#231e35" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="682" y="256" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">AudioPlayerBar（常時表示）</text>
+  </svg>
+
+  <p>ナビゲーションバーは全ページ共通（Feed / Podcast / Subscriptions / Settings）。画面下部には AudioPlayerBar を常時表示し、再生中エピソードを制御できる。</p>
+
+  <!-- ======= SCREENS ======= -->
+  <h2 id="screens">3. 各画面の設計</h2>
+
+  <div class="screen">
+    <h4>Feed <span class="screen-path">/feed</span></h4>
+    <p>レコメンド済み記事をカード形式で表示する。</p>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>記事カード</td><td>タイトル・ソース名・公開日・スコアバー（0〜1.0 を視覚化）</td></tr>
+      <tr><td>Star ボタン</td><td>★ クリック → POST /articles/:id/star → Podcast 生成開始トースト表示</td></tr>
+      <tr><td>Dismiss ボタン</td><td>× クリック → POST /articles/:id/dismiss → カードをリストから除去</td></tr>
+      <tr><td>記事リンク</td><td>タイトルクリック → 新規タブで元記事を開く</td></tr>
+      <tr><td>ローディング状態</td><td>スケルトンカード表示</td></tr>
+      <tr><td>空状態</td><td>「まだ記事がありません。バッチは毎日 06:00 に実行されます。」</td></tr>
+      <tr><td>リフレッシュ</td><td>画面上部のリフレッシュボタン or プルトゥリフレッシュ（モバイル）</td></tr>
+    </table>
+  </div>
+
+  <div class="screen">
+    <h4>Podcast エピソード一覧 <span class="screen-path">/podcast</span></h4>
+    <p>生成済み Podcast をカード形式で表示する。</p>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>エピソードカード</td><td>日本語イントロ（先頭 80 文字）・難易度バッジ・再生時間・生成日</td></tr>
+      <tr><td>ステータス表示</td><td>生成中: スピナー + 「生成中...」、失敗: エラーアイコン、完了: 再生ボタン</td></tr>
+      <tr><td>再生ボタン</td><td>クリック → AudioPlayerBar にエピソードをセットし再生開始</td></tr>
+      <tr><td>ポーリング</td><td>status=processing のエピソードは 5 秒ごとに GET /podcasts/:id で状態確認</td></tr>
+      <tr><td>詳細リンク</td><td>カードクリック → /podcast/:id でイントロ全文表示</td></tr>
+    </table>
+  </div>
+
+  <div class="screen">
+    <h4>RSS 購読管理 <span class="screen-path">/subscriptions</span> ← 専用画面</h4>
+    <p>購読中の RSS ソースの一覧表示・追加・削除を行う専用画面。</p>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>購読中ソース一覧</td><td>ソース名・URL・有効/無効トグルをテーブルまたはカードで表示</td></tr>
+      <tr><td>URL 追加フォーム</td><td>「ソース名」「RSS URL」入力欄 + 追加ボタン（インラインバリデーション付き）</td></tr>
+      <tr><td>削除</td><td>各行の削除ボタン → 確認ダイアログ → DELETE /subscriptions/:id</td></tr>
+      <tr><td>バリデーション</td><td>URL 形式チェック（クライアント）+ 重複チェック（サーバー 409 エラー表示）</td></tr>
+      <tr><td>空状態</td><td>デフォルト2件（HackerNews / Zenn.dev）が初期表示</td></tr>
+      <tr><td>エラー表示</td><td>422: 「RSS フィードとして取得できません」、409: 「この URL は登録済みです」</td></tr>
+    </table>
+    <h4>URL 追加フォームの UI フロー</h4>
+    <ol>
+      <li>「ソース名」と「RSS URL」を入力</li>
+      <li>送信 → POST /subscriptions</li>
+      <li>成功: 一覧にリアルタイム追加・トースト「追加しました」</li>
+      <li>失敗: インラインエラーメッセージ表示（フォームはリセットしない）</li>
+    </ol>
+  </div>
+
+  <div class="screen">
+    <h4>Settings <span class="screen-path">/settings</span></h4>
+    <table>
+      <tr><th>設定項目</th><th>UI</th><th>保存先</th></tr>
+      <tr><td>デフォルト難易度</td><td>セレクトボックス（6 段階）</td><td>POST /settings + localStorage</td></tr>
+      <tr><td>デフォルト再生速度</td><td>スライダー（0.5〜2.5）</td><td>POST /settings + localStorage</td></tr>
+      <tr><td>API エンドポイント URL</td><td>テキスト入力（初回設定）</td><td>localStorage</td></tr>
+      <tr><td>API キー</td><td>パスワード入力</td><td>localStorage（要注意: XSS リスク）</td></tr>
+    </table>
+    <div class="note">API キーは localStorage に保存するため XSS への注意が必要。CSP ヘッダーと <code>httpOnly</code> Cookie への移行を Phase 2 で検討する。</div>
+  </div>
+
+  <!-- ======= COMPONENTS ======= -->
+  <h2 id="components">4. 共通コンポーネント設計</h2>
+
+  <h3>コンポーネント一覧</h3>
+  <div class="component-list">
+    <div class="comp"><strong>NavigationBar</strong><span>Feed/Podcast/Subscriptions/Settings リンク。現在ページをハイライト。</span></div>
+    <div class="comp"><strong>AudioPlayerBar</strong><span>画面下部固定の再生バー。再生/一時停止・シーク・速度変更・イントロテキスト。</span></div>
+    <div class="comp"><strong>ArticleCard</strong><span>タイトル・ソース・日付・スコアバー・Star/Dismiss ボタン。</span></div>
+    <div class="comp"><strong>PodcastCard</strong><span>イントロ先頭・難易度・時間・ステータス・再生ボタン。</span></div>
+    <div class="comp"><strong>SubscriptionRow</strong><span>ソース名・URL・削除ボタン。各行。</span></div>
+    <div class="comp"><strong>AddSubscriptionForm</strong><span>ソース名 + URL 入力フォーム。インラインバリデーション付き。</span></div>
+    <div class="comp"><strong>DifficultyBadge</strong><span>難易度を色分けバッジで表示。</span></div>
+    <div class="comp"><strong>StatusBadge</strong><span>processing/completed/failed を色付きバッジで表示。</span></div>
+    <div class="comp"><strong>Toast</strong><span>成功/エラーのフィードバック通知（3 秒後に消える）。</span></div>
+    <div class="comp"><strong>SetupModal</strong><span>API キー未設定時にモーダル表示。</span></div>
+    <div class="comp"><strong>SkeletonCard</strong><span>データ取得中のプレースホルダー。</span></div>
+    <div class="comp"><strong>ConfirmDialog</strong><span>RSS 削除時の確認ダイアログ。</span></div>
+  </div>
+
+  <!-- ======= STATE ======= -->
+  <h2 id="state">5. 状態管理</h2>
+
+  <h3>グローバル状態（React Context）</h3>
+  <pre>// contexts/AppContext.tsx
+type AppState = {
+  // API 設定（localStorage 永続化）
+  apiBaseUrl: string;
+  apiKey: string;
+  isConfigured: boolean;
+
+  // デフォルト設定
+  defaultDifficulty: Difficulty;
+  defaultPlaybackSpeed: number;
+
+  // 音声再生状態（全ページ共通）
+  currentPodcast: Podcast | null;
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  playbackSpeed: number;
+}</pre>
+
+  <h3>ローカル状態（各ページ / useReducer）</h3>
+  <table>
+    <tr><th>ページ</th><th>ローカル状態</th></tr>
+    <tr><td>Feed</td><td>articles（表示中の記事一覧）, isLoading, error</td></tr>
+    <tr><td>Podcast</td><td>podcasts, isLoading, pollingIds（生成中のID集合）</td></tr>
+    <tr><td>Subscriptions</td><td>sources, isLoading, isAdding, addError</td></tr>
+    <tr><td>Settings</td><td>isSaving, saveError</td></tr>
+  </table>
+
+  <!-- ======= AUDIO ======= -->
+  <h2 id="audio">6. 音声再生設計</h2>
+
+  <h3>AudioPlayerBar の構成要素</h3>
+  <pre>AudioPlayerBar
+├── エピソードタイトル（日本語イントロ先頭 50 文字）
+├── 難易度バッジ
+├── シークバー（input[type=range]）
+│   ├── 現在時刻表示（MM:SS）
+│   └── 総時間表示（MM:SS）
+├── 再生コントロール
+│   ├── -15秒 ボタン
+│   ├── 再生/一時停止 ボタン
+│   └── +30秒 ボタン
+└── 速度セレクタ（×0.5 〜 ×2.5 の 8 段階）</pre>
+
+  <h3>HTML5 Audio API の実装方針</h3>
+  <pre>// hooks/useAudioPlayer.ts
+const audio = new Audio(audioUrl);
+
+// 速度制御
+audio.playbackRate = playbackSpeed;
+
+// 再生位置
+audio.currentTime = savedPosition;  // 復元時
+audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
+
+// 再生終了時
+audio.addEventListener('ended', () => {
+  setIsPlaying(false);
+  // PATCH /podcasts/:id/position で 0 リセット
+});
+
+// アンマウント時にクリーンアップ
+return () => { audio.pause(); audio.src = ''; };</pre>
+
+  <h3>再生位置の保存フロー</h3>
+  <ol>
+    <li><code>timeupdate</code> イベントで <code>currentTime</code> を 10 秒ごとに PATCH /podcasts/:id/position へ送信（デバウンス）</li>
+    <li>次回 /podcast ページ訪問時、Podcast 一覧取得と同時に <code>playback_position_seconds</code> を取得</li>
+    <li>再生開始時に <code>audio.currentTime = savedPosition</code> で位置を復元</li>
+  </ol>
+
+  <!-- ======= API CLIENT ======= -->
+  <h2 id="api-client">7. API クライアント設計</h2>
+
+  <pre>// lib/api.ts
+const API_BASE = localStorage.getItem('api_base_url') ?? '';
+const API_KEY  = localStorage.getItem('api_key') ?? '';
+
+async function apiRequest&lt;T&gt;(
+  path: string,
+  options?: RequestInit
+): Promise&lt;T&gt; {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': API_KEY,
+      ...options?.headers,
+    },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, error.detail ?? 'Unknown error');
+  }
+  return res.json();
+}
+
+// 各 API 関数
+export const api = {
+  getFeed: () => apiRequest&lt;FeedResponse&gt;('/feed'),
+  starArticle: (id: string) => apiRequest&lt;StarResponse&gt;(`/articles/${id}/star`, { method: 'POST' }),
+  dismissArticle: (id: string) => apiRequest&lt;void&gt;(`/articles/${id}/dismiss`, { method: 'POST' }),
+  getPodcasts: () => apiRequest&lt;PodcastListResponse&gt;('/podcasts'),
+  getPodcast: (id: string) => apiRequest&lt;Podcast&gt;(`/podcasts/${id}`),
+  updatePosition: (id: string, pos: number) =>
+    apiRequest&lt;void&gt;(`/podcasts/${id}/position`, { method: 'PATCH', body: JSON.stringify({ position_seconds: pos }) }),
+  getSubscriptions: () => apiRequest&lt;SubscriptionsResponse&gt;('/subscriptions'),
+  addSubscription: (name: string, url: string) =>
+    apiRequest&lt;SubscriptionsResponse&gt;('/subscriptions', { method: 'POST', body: JSON.stringify({ name, url }) }),
+  deleteSubscription: (id: string) =>
+    apiRequest&lt;void&gt;(`/subscriptions/${id}`, { method: 'DELETE' }),
+  getSettings: () => apiRequest&lt;Settings&gt;('/settings'),
+  updateSettings: (s: Partial&lt;Settings&gt;) =>
+    apiRequest&lt;Settings&gt;('/settings', { method: 'PUT', body: JSON.stringify(s) }),
+};</pre>
+
+  <h3>型定義</h3>
+  <pre>// types/index.ts
+export type Difficulty = 'toeic_600' | 'toeic_900' | 'ielts_55' | 'ielts_7' | 'eiken_2' | 'eiken_p1';
+
+export interface Article {
+  id: string; title: string; url: string; source: string;
+  score: number; published_at: string;
+}
+
+export interface Podcast {
+  id: string; type: 'single' | 'digest'; article_ids: string[];
+  difficulty: Difficulty; audio_url: string | null;
+  japanese_intro_text: string; duration_seconds: number;
+  status: 'processing' | 'completed' | 'failed' | 'partial_failed';
+  playback_position_seconds: number; created_at: string;
+}
+
+export interface RssSource {
+  id: string; name: string; url: string; enabled: boolean;
+}
+
+export interface Settings {
+  default_difficulty: Difficulty;
+  default_playback_speed: number;
+}</pre>
+
+  <!-- ======= FILE STRUCTURE ======= -->
+  <h2 id="filestructure">8. ファイル構成</h2>
+
+  <pre>web/
+├── app/
+│   ├── layout.tsx             ← ルートレイアウト（NavigationBar + AudioPlayerBar）
+│   ├── page.tsx               ← / リダイレクト or セットアップ画面
+│   ├── feed/
+│   │   └── page.tsx           ← /feed
+│   ├── podcast/
+│   │   ├── page.tsx           ← /podcast（一覧）
+│   │   └── [id]/
+│   │       └── page.tsx       ← /podcast/:id（詳細）
+│   ├── subscriptions/
+│   │   └── page.tsx           ← /subscriptions（RSS 購読管理）
+│   └── settings/
+│       └── page.tsx           ← /settings
+│
+├── components/
+│   ├── NavigationBar.tsx
+│   ├── AudioPlayerBar.tsx
+│   ├── ArticleCard.tsx
+│   ├── PodcastCard.tsx
+│   ├── subscriptions/
+│   │   ├── SubscriptionRow.tsx
+│   │   └── AddSubscriptionForm.tsx   ← URL 入力フォーム
+│   ├── ui/
+│   │   ├── DifficultyBadge.tsx
+│   │   ├── StatusBadge.tsx
+│   │   ├── Toast.tsx
+│   │   ├── ConfirmDialog.tsx
+│   │   ├── SetupModal.tsx
+│   │   └── SkeletonCard.tsx
+│   └── providers/
+│       └── AppProvider.tsx     ← AppContext Provider
+│
+├── contexts/
+│   └── AppContext.tsx
+│
+├── hooks/
+│   ├── useAudioPlayer.ts      ← HTML5 Audio API ラッパー
+│   ├── usePodcastPolling.ts   ← 生成中 Podcast のポーリング
+│   └── useLocalStorage.ts     ← localStorage の型付きラッパー
+│
+├── lib/
+│   ├── api.ts                 ← fetch ラッパー・全 API 関数
+│   └── config.ts              ← localStorage キー定数
+│
+├── types/
+│   └── index.ts               ← 全型定義
+│
+├── Dockerfile
+├── next.config.ts
+├── tailwind.config.ts
+└── tsconfig.json</pre>
+
+  <!-- ======= DEPLOY ======= -->
+  <h2 id="deploy">9. デプロイ設計（Cloud Run）</h2>
+
+  <h3>Dockerfile</h3>
+  <pre># web/Dockerfile
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+EXPOSE 3000
+CMD ["node", "server.js"]</pre>
+
+  <h3>デプロイコマンド</h3>
+  <pre>export PROJECT_ID=$(gcloud config get-value project)
+export REGION="asia-northeast1"
+
+# ビルド & プッシュ
+docker build -f Dockerfile -t gcr.io/${PROJECT_ID}/audio-news-web:latest .
+docker push gcr.io/${PROJECT_ID}/audio-news-web:latest
+
+# Cloud Run にデプロイ
+gcloud run deploy audio-news-web \
+  --image gcr.io/${PROJECT_ID}/audio-news-web:latest \
+  --region ${REGION} \
+  --allow-unauthenticated \   # 個人アクセスのため（必要なら IAP で制限）
+  --port 3000</pre>
+
+  <div class="note">
+    <strong>next.config.ts</strong> で <code>output: 'standalone'</code> を設定し、<code>node_modules</code> を含まない軽量なスタンドアローンサーバーを生成する。<br>
+    API エンドポイントは環境変数ではなく localStorage で管理するため、ビルド時に注入不要。
+  </div>
+
+  <h3>iOS との差異まとめ</h3>
+  <table>
+    <tr><th>機能</th><th>Web（Next.js）</th><th>iOS（Phase 2）</th></tr>
+    <tr><td>Star/Dismiss 操作</td><td>★ ボタン / × ボタン</td><td>右/左スワイプ</td></tr>
+    <tr><td>音声再生</td><td>HTML5 Audio API + カスタム UI</td><td>AVFoundation (AVPlayer)</td></tr>
+    <tr><td>設定永続化</td><td>localStorage</td><td>UserDefaults</td></tr>
+    <tr><td>Push 通知</td><td>ポーリング（5 秒）→ Web Push（P2）</td><td>APNs（P2）</td></tr>
+    <tr><td>オフライン再生</td><td>Service Worker キャッシュ（P2）</td><td>デバイスキャッシュ（P2）</td></tr>
+    <tr><td>RSS 購読管理</td><td>/subscriptions 専用ページ</td><td>SubscriptionsView（タブ遷移）</td></tr>
+    <tr><td>API 設定</td><td>localStorage（SetupModal 初回）</td><td>UserDefaults（InitialSetupView 初回）</td></tr>
+  </table>
+
+</main>
+</body>
+</html>

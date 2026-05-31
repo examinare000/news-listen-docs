@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AudioNews 基本設計書 — 全体概要</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3e;
+    --text: #e2e4ed;
+    --muted: #8b8fa8;
+    --accent: #7c6af7;
+    --accent2: #4fc3f7;
+    --green: #4caf82;
+    --orange: #f0a050;
+    --red: #e05c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Pro Text', -apple-system, sans-serif; font-size: 14px; line-height: 1.7; }
+
+  nav {
+    position: fixed; top: 0; left: 0; width: 220px; height: 100vh;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 24px 16px; overflow-y: auto;
+  }
+  nav h2 { font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; margin-bottom: 12px; }
+  nav a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 13px; margin-bottom: 2px; transition: all .15s; }
+  nav a:hover, nav a.active { background: rgba(124,106,247,.15); color: var(--accent); }
+  nav .nav-group { margin-bottom: 20px; }
+  nav .nav-doc { font-size: 11px; font-weight: 600; color: var(--accent2); padding: 4px 10px; margin-bottom: 4px; }
+
+  main { margin-left: 220px; padding: 48px 56px; max-width: 960px; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; color: var(--accent2); }
+  p { margin-bottom: 12px; color: #c8cad8; }
+
+  .meta { display: flex; gap: 16px; margin-bottom: 40px; flex-wrap: wrap; }
+  .badge { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 4px 14px; font-size: 12px; color: var(--muted); }
+  .badge span { color: var(--text); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 13px; }
+  th { background: var(--surface); color: var(--muted); font-weight: 600; text-align: left; padding: 10px 14px; border: 1px solid var(--border); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+  td { padding: 10px 14px; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-x: auto; font-size: 12px; line-height: 1.6; margin: 16px 0 24px; font-family: 'SF Mono', 'Fira Code', monospace; }
+  code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
+  p code, td code, li code { background: var(--surface); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; }
+
+  .svg-diagram { display: block; width: 100%; margin: 16px 0 24px; border-radius: 8px; border: 1px solid var(--border); }
+
+  .tag { display: inline-block; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+  .tag-p0 { background: rgba(229,57,53,.15); color: #e05c5c; }
+  .tag-p1 { background: rgba(240,160,80,.15); color: var(--orange); }
+  .tag-p2 { background: rgba(76,175,130,.15); color: var(--green); }
+  .tag-mvp { background: rgba(124,106,247,.2); color: var(--accent); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+  .card h4 { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--accent2); }
+  .card ul { padding-left: 16px; color: #c8cad8; font-size: 13px; }
+  .card li { margin-bottom: 4px; }
+
+  .decision { border-left: 3px solid var(--accent); background: rgba(124,106,247,.06); padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .decision strong { color: var(--accent); }
+
+  ul, ol { padding-left: 20px; margin-bottom: 12px; color: #c8cad8; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent2); }
+
+  .scope-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 16px 0; }
+  .scope-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .scope-card h4 { font-size: 12px; font-weight: 700; margin-bottom: 10px; }
+  .scope-card ul { font-size: 12px; padding-left: 14px; }
+  .scope-p0 { border-top: 3px solid var(--accent); }
+  .scope-p1 { border-top: 3px solid var(--orange); }
+  .scope-p2 { border-top: 3px solid var(--muted); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-group">
+    <div class="nav-doc">全体概要</div>
+    <a href="#overview" class="active">システム概要</a>
+    <a href="#tech-stack">技術スタック</a>
+    <a href="#decisions">設計決定事項</a>
+    <a href="#scope">スコープ</a>
+    <a href="#cost">コスト概算</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-doc">設計書</div>
+    <a href="backend-design.html">バックエンド設計</a>
+    <a href="web-design.html">Webフロントエンド設計</a>
+    <a href="ios-design.html">iOS設計</a>
+  </div>
+</nav>
+
+<main>
+  <h1>AudioNews 基本設計書</h1>
+  <p>海外テックニュース自動収集・Podcast化アプリ — 全体システム概要</p>
+
+  <div class="meta">
+    <div class="badge">バージョン <span>1.0</span></div>
+    <div class="badge">作成日 <span>2026-05-31</span></div>
+    <div class="badge">ステータス <span>設計フェーズ</span></div>
+    <div class="badge">想定ユーザー <span>1〜5人</span></div>
+  </div>
+
+  <!-- ======= SYSTEM OVERVIEW ======= -->
+  <h2 id="overview">1. システム概要</h2>
+
+  <p>AudioNews は HackerNews・Zenn.dev 等の海外テックニュースを毎日自動収集し、AI が生成した Podcast 形式の音声コンテンツとして配信するパーソナル向けアプリケーションです。</p>
+
+  <h3>システムコンテキスト図</h3>
+  <svg class="svg-diagram" viewBox="0 0 820 500" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
+    <defs>
+      <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M1,1 L1,8 L9,4.5 z" fill="#4fc3f7"/></marker>
+      <marker id="aho" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M1,1 L1,8 L9,4.5 z" fill="#f0a050"/></marker>
+      <marker id="ahg" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M1,1 L1,8 L9,4.5 z" fill="#4caf82"/></marker>
+    </defs>
+    <!-- layer labels -->
+    <text x="16" y="24" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" letter-spacing="1.5">CLIENTS</text>
+    <!-- Web App -->
+    <rect x="16" y="30" width="190" height="62" rx="8" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="111" y="57" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">Web App</text>
+    <text x="111" y="75" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">Next.js · Cloud Run</text>
+    <!-- iOS App -->
+    <rect x="614" y="30" width="190" height="62" rx="8" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="709" y="57" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">iOS App</text>
+    <text x="709" y="75" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">SwiftUI · Phase 2</text>
+    <!-- arrows clients → API -->
+    <line x1="206" y1="92" x2="330" y2="148" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
+    <line x1="614" y1="92" x2="490" y2="148" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
+    <text x="245" y="130" fill="#4fc3f7" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">HTTPS + X-API-Key</text>
+    <text x="575" y="130" fill="#4fc3f7" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">HTTPS + X-API-Key</text>
+    <!-- API layer -->
+    <text x="16" y="162" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" letter-spacing="1.5">API</text>
+    <rect x="256" y="168" width="308" height="62" rx="8" fill="#0f1e28" stroke="#4fc3f7" stroke-width="2"/>
+    <text x="410" y="196" fill="#4fc3f7" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Cloud Run Service</text>
+    <text x="410" y="214" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">FastAPI · Python 3.12</text>
+    <!-- arrows API → data -->
+    <line x1="336" y1="230" x2="175" y2="272" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
+    <line x1="410" y1="230" x2="410" y2="270" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
+    <line x1="484" y1="230" x2="645" y2="272" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
+    <!-- data layer -->
+    <text x="16" y="284" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" letter-spacing="1.5">DATA</text>
+    <rect x="16" y="290" width="186" height="60" rx="8" fill="#0f1e18" stroke="#4caf82" stroke-width="1.5"/>
+    <text x="109" y="317" fill="#4caf82" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">Cloud Tasks</text>
+    <text x="109" y="335" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">Podcast生成キュー</text>
+    <rect x="314" y="290" width="192" height="60" rx="8" fill="#0f1e18" stroke="#4caf82" stroke-width="1.5"/>
+    <text x="410" y="317" fill="#4caf82" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">Firestore</text>
+    <text x="410" y="335" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">記事・設定・Podcast状態</text>
+    <rect x="618" y="290" width="186" height="60" rx="8" fill="#0f1e18" stroke="#4caf82" stroke-width="1.5"/>
+    <text x="711" y="317" fill="#4caf82" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">Cloud Storage</text>
+    <text x="711" y="335" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">MP3ファイル (30日)</text>
+    <!-- arrow Cloud Tasks → Worker -->
+    <line x1="109" y1="350" x2="109" y2="392" stroke="#f0a050" stroke-width="1.5" marker-end="url(#aho)"/>
+    <!-- worker + gemini -->
+    <text x="16" y="406" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" letter-spacing="1.5">WORKER</text>
+    <rect x="16" y="412" width="206" height="62" rx="8" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="119" y="440" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">Podcast Worker</text>
+    <text x="119" y="458" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">スクリプト生成 + TTS</text>
+    <line x1="222" y1="443" x2="262" y2="443" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#ah)"/>
+    <rect x="262" y="412" width="192" height="62" rx="8" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="358" y="440" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">Gemini 2.5 Flash</text>
+    <text x="358" y="458" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">Text + TTS</text>
+    <!-- Worker → Storage (dashed) -->
+    <path d="M119,474 Q119,490 711,490 Q711,490 711,350" stroke="#4caf82" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#ahg)"/>
+    <!-- batch -->
+    <rect x="530" y="412" width="274" height="70" rx="8" fill="#1e1808" stroke="#f0a050" stroke-width="1.5"/>
+    <text x="667" y="433" fill="#f0a050" font-size="12" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Cloud Scheduler  06:00 JST</text>
+    <text x="667" y="451" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">rss-fetcher-job · recommendation-job</text>
+    <text x="667" y="469" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">podcast-generator-job (P1)</text>
+    <!-- Batch → Firestore -->
+    <line x1="600" y1="430" x2="506" y2="350" stroke="#f0a050" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#aho)"/>
+  </svg>
+
+  <h3>主要フロー</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>定時バッチ（毎日 06:00 JST）</h4>
+      <ul>
+        <li>Cloud Scheduler が3ジョブを順次起動</li>
+        <li>RSS フェッチ → 本文抽出 → Firestore 保存</li>
+        <li>Gemini でユーザー関心スコアを再計算</li>
+        <li>Star 済み記事の Podcast を生成・保存</li>
+        <li>06:30 JST までに完了</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>オンデマンド Podcast 生成（Star 操作時）</h4>
+      <ul>
+        <li>iOS/Web → API へ POST /articles/:id/star</li>
+        <li>API が Cloud Tasks へタスク投入（202 即返却）</li>
+        <li>バックグラウンドで Gemini スクリプト生成</li>
+        <li>Gemini TTS で音声生成 → Storage 保存</li>
+        <li>Firestore ステータス更新（完了通知）</li>
+        <li>所要時間：Star から約 1〜2分</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ======= TECH STACK ======= -->
+  <h2 id="tech-stack">2. 技術スタック</h2>
+
+  <h3>クライアント</h3>
+  <table>
+    <tr><th>レイヤー</th><th>技術</th><th>理由</th></tr>
+    <tr><td>Web フロントエンド</td><td>Next.js 15 (App Router) + TypeScript</td><td>SSR 対応・型安全・GCP Cloud Run にコンテナデプロイ可能</td></tr>
+    <tr><td>Web スタイリング</td><td>Tailwind CSS</td><td>ユーティリティファーストで高速プロトタイピング</td></tr>
+    <tr><td>Web 音声再生</td><td>HTML5 Audio API + カスタムコントロール</td><td>追加ライブラリ不要・ブラウザネイティブ</td></tr>
+    <tr><td>iOS アプリ</td><td>SwiftUI + iOS 17+</td><td>モダン宣言的UI・AVFoundation で音声再生</td></tr>
+    <tr><td>iOS 音声再生</td><td>AVFoundation (AVPlayer)</td><td>速度制御・再生位置保存をネイティブサポート</td></tr>
+  </table>
+
+  <h3>バックエンド・インフラ</h3>
+  <table>
+    <tr><th>サービス</th><th>技術</th><th>理由</th></tr>
+    <tr><td>API サーバー</td><td>Python 3.12 + FastAPI on Cloud Run</td><td>非同期・型安全・OpenAPI 自動生成</td></tr>
+    <tr><td>バッチ処理</td><td>Cloud Run Jobs × 3</td><td>コンテナ化済みジョブをスケールゼロで実行</td></tr>
+    <tr><td>非同期キュー</td><td>Cloud Tasks</td><td>Podcast 生成のタイムアウト分離・リトライ管理</td></tr>
+    <tr><td>スケジューラー</td><td>Cloud Scheduler</td><td>Cloud Run Jobs との統合が標準対応</td></tr>
+    <tr><td>データストア</td><td>Google Firestore (Native)</td><td>サーバーレス・個人利用は無料枠内</td></tr>
+    <tr><td>音声ストレージ</td><td>Cloud Storage</td><td>30日 Lifecycle で自動削除・コスト最小化</td></tr>
+    <tr><td>シークレット管理</td><td>Secret Manager</td><td>API キー・Gemini キーを安全に管理</td></tr>
+    <tr><td>AI / スクリプト生成</td><td>Gemini 2.5 Flash</td><td>高速・Context Caching でコスト削減</td></tr>
+    <tr><td>TTS（MVP）</td><td>Gemini TTS</td><td>google-genai 1 API で完結・シンプル</td></tr>
+    <tr><td>TTS（Phase 2）</td><td>OpenAI TTS</td><td>話者 A/B の並列生成・掛け合い形式の品質向上</td></tr>
+    <tr><td>本文抽出</td><td>trafilatura (Python)</td><td>主要メディアのスクレイピングに対応</td></tr>
+  </table>
+
+  <!-- ======= DECISIONS ======= -->
+  <h2 id="decisions">3. 主要設計決定事項</h2>
+
+  <div class="decision">
+    <strong>Web 先行・iOS 後追</strong><br>
+    バックエンド API を共通化し、まず Next.js Web アプリで機能を検証。iOS アプリは同一 API を使って後から実装する。
+  </div>
+
+  <div class="decision">
+    <strong>TTS: MVP は Gemini TTS、Phase 2 で OpenAI TTS に移行</strong><br>
+    MVP では <code>google-genai</code> の TTS で実装をシンプルに保つ。Phase 2 以降、話者 A/B 並列生成（掛け合い形式）が必要になった段階で OpenAI TTS に切り替える。
+  </div>
+
+  <div class="decision">
+    <strong>オンデマンド Podcast 生成に Cloud Tasks を使用</strong><br>
+    Star 操作から生成完了まで 1〜2 分かかるため、Cloud Tasks で非同期化。API は 202 Accepted を即返し、タイムアウトリスクを回避する。
+  </div>
+
+  <div class="decision">
+    <strong>ユーザー識別は固定値 "default"（MVP）</strong><br>
+    個人利用前提のため Firebase Auth を使わず固定 user_id で実装。Phase 2 以降でマルチユーザー対応。
+  </div>
+
+  <div class="decision">
+    <strong>RSS 管理は専用画面として独立</strong><br>
+    購読サイト一覧・URL 追加・削除は Settings とは別の独立した画面（Web: <code>/subscriptions</code>、iOS: <code>SubscriptionsView</code>）に配置し、視認性を高める。
+  </div>
+
+  <div class="decision">
+    <strong>API キーによる認証（個人利用向けシンプル認証）</strong><br>
+    全リクエストに <code>X-API-Key</code> ヘッダーを付与。キーは Secret Manager で管理し、クライアント側（Web: localStorage、iOS: UserDefaults）に保存する。
+  </div>
+
+  <!-- ======= SCOPE ======= -->
+  <h2 id="scope">4. スコープ</h2>
+
+  <div class="scope-grid">
+    <div class="scope-card scope-p0">
+      <h4>🟣 MVP（P0）</h4>
+      <ul>
+        <li>Feed タブ（記事一覧・スワイプ/ボタン操作）</li>
+        <li>パーソナライズレコメンド</li>
+        <li>RSS 購読管理専用画面</li>
+        <li>Podcast タブ（一覧・再生）</li>
+        <li>オンデマンド生成（Star後1-2分）</li>
+        <li>日本語イントロ + 英語本編</li>
+        <li>難易度 6 段階・速度 8 段階</li>
+        <li>再生位置保存</li>
+        <li>Settings（難易度・速度デフォルト）</li>
+        <li>Cloud Tasks 非同期生成</li>
+        <li><strong>Web アプリ（Next.js）先行リリース</strong></li>
+      </ul>
+    </div>
+    <div class="scope-card scope-p1">
+      <h4>🟠 Phase 2（P1）</h4>
+      <ul>
+        <li>iOS アプリ（SwiftUI）</li>
+        <li>日次ダイジェスト自動生成</li>
+        <li>OpenAI TTS への移行（話者 A/B）</li>
+        <li>オフライン再生</li>
+        <li>Push 通知（生成完了）</li>
+        <li>Firebase Auth マルチユーザー</li>
+        <li>ストレージ管理画面</li>
+      </ul>
+    </div>
+    <div class="scope-card scope-p2">
+      <h4>⚪ Phase 3（P2）</h4>
+      <ul>
+        <li>Apple Watch 対応</li>
+        <li>記事全文検索</li>
+        <li>Web Push 通知</li>
+        <li>ブラウザ拡張（Web クリップ）</li>
+        <li>PWA 化</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ======= COST ======= -->
+  <h2 id="cost">5. コスト概算</h2>
+
+  <p>1 ユーザーが 1 日 5 本（各 5 分相当）を生成する場合の月次試算。</p>
+
+  <table>
+    <tr><th>サービス</th><th>単価</th><th>月次使用量（概算）</th><th>月次コスト</th></tr>
+    <tr><td>Gemini 2.5 Flash（スクリプト生成）</td><td>入力 $0.15/1M token、出力 $0.60/1M</td><td>入力 1M、出力 200k token</td><td>約 $0.27</td></tr>
+    <tr><td>Gemini 2.5 Flash（レコメンド・Context Cache）</td><td>Cache $0.0375/1M token</td><td>Cache 50k token/日</td><td>約 $0.06</td></tr>
+    <tr><td>Gemini TTS（MVP）</td><td>$0.10/1M 文字（推定）</td><td>約 150k 文字/月</td><td>約 $0.02</td></tr>
+    <tr><td>Cloud Run（API + Web + Jobs）</td><td>$0.00002400/vCPU 秒</td><td>約 5,000 秒/月</td><td>約 $0.12</td></tr>
+    <tr><td>Cloud Tasks</td><td>$0.40/1M タスク</td><td>〜150 タスク/月</td><td>$0.00</td></tr>
+    <tr><td>Firestore</td><td>無料枠内</td><td>〜 1GB 以下</td><td>$0.00</td></tr>
+    <tr><td>Cloud Storage</td><td>$0.020/GB/月</td><td>約 1.5GB（30 日分）</td><td>約 $0.03</td></tr>
+    <tr><td><strong>合計</strong></td><td></td><td></td><td><strong>約 $0.50/月</strong></td></tr>
+  </table>
+
+  <p style="color:var(--muted); font-size:12px;">※ Gemini TTS 単価は現時点での推定値。OpenAI TTS 移行後は約 $2.50/月（$15/1M 文字）に増加する見込み。いずれも月次 5USD 以下の目標を達成。</p>
+
+</main>
+</body>
+</html>

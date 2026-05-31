@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AudioNews — iOS設計書</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e2e4ed; --muted: #8b8fa8; --accent: #7c6af7;
+    --accent2: #4fc3f7; --green: #4caf82; --orange: #f0a050; --red: #e05c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Pro Text', -apple-system, sans-serif; font-size: 14px; line-height: 1.7; }
+  nav { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: var(--surface); border-right: 1px solid var(--border); padding: 24px 16px; overflow-y: auto; }
+  nav a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 13px; margin-bottom: 2px; transition: all .15s; }
+  nav a:hover { background: rgba(124,106,247,.15); color: var(--accent); }
+  nav .nav-group { margin-bottom: 20px; }
+  nav .nav-doc { font-size: 11px; font-weight: 600; color: var(--accent2); padding: 4px 10px; margin-bottom: 4px; }
+  main { margin-left: 220px; padding: 48px 56px; max-width: 960px; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; color: var(--accent2); }
+  h4 { font-size: 13px; font-weight: 600; margin: 20px 0 8px; color: var(--orange); }
+  p { margin-bottom: 12px; color: #c8cad8; }
+  .meta { display: flex; gap: 16px; margin-bottom: 40px; flex-wrap: wrap; }
+  .badge { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 4px 14px; font-size: 12px; color: var(--muted); }
+  .badge span { color: var(--text); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 13px; }
+  th { background: var(--surface); color: var(--muted); font-weight: 600; text-align: left; padding: 10px 14px; border: 1px solid var(--border); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+  td { padding: 10px 14px; border: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-x: auto; font-size: 12px; line-height: 1.6; margin: 16px 0 24px; font-family: 'SF Mono', 'Fira Code', monospace; }
+  p code, td code, li code { background: var(--surface); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+  .svg-diagram { display: block; width: 100%; margin: 16px 0 24px; border-radius: 8px; border: 1px solid var(--border); }
+  ul, ol { padding-left: 20px; margin-bottom: 12px; color: #c8cad8; }
+  li { margin-bottom: 5px; }
+  a { color: var(--accent2); }
+  .note { background: rgba(124,106,247,.08); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 12px 0; font-size: 13px; }
+  .warn { background: rgba(240,160,80,.08); border-left: 3px solid var(--orange); padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 12px 0; font-size: 13px; }
+  .screen { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin: 16px 0; }
+  .screen h4 { margin: 0 0 12px; font-size: 14px; color: var(--accent2); display: flex; align-items: center; gap: 8px; }
+  .screen-path { font-size: 12px; color: var(--muted); font-family: monospace; background: rgba(255,255,255,.05); padding: 2px 8px; border-radius: 4px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h4 { color: var(--accent2); margin: 0 0 8px; font-size: 13px; }
+  .p1-badge { display: inline-block; background: rgba(240,160,80,.15); color: var(--orange); border: 1px solid rgba(240,160,80,.3); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; vertical-align: middle; margin-left: 6px; }
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-group">
+    <div class="nav-doc">全体概要</div>
+    <a href="index.html">システム概要</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-doc">iOS 設計</div>
+    <a href="#overview">概要・技術スタック</a>
+    <a href="#navigation">画面構成・ナビゲーション</a>
+    <a href="#screens">各画面の設計</a>
+    <a href="#mvvm">MVVM アーキテクチャ</a>
+    <a href="#appstate">AppState 設計</a>
+    <a href="#api-client">API クライアント</a>
+    <a href="#avplayer">音声再生（AVPlayer）</a>
+    <a href="#filestructure">ファイル構成</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-doc">他の設計書</div>
+    <a href="backend-design.html">バックエンド</a>
+    <a href="web-design.html">Web フロントエンド</a>
+  </div>
+</nav>
+
+<main>
+  <h1>iOS 設計書</h1>
+  <p>SwiftUI ネイティブ iOS アプリケーション設計。<strong>Phase 2 対象</strong>（Web アプリが先行してリリースされた後に実装）。バックエンド API は Web と共通。</p>
+  <div class="meta">
+    <div class="badge">フレームワーク <span>SwiftUI</span></div>
+    <div class="badge">言語 <span>Swift 5.10+</span></div>
+    <div class="badge">最小 iOS <span>iOS 17</span></div>
+    <div class="badge">Xcode <span>16+</span></div>
+    <div class="badge">フェーズ <span>Phase 2</span></div>
+  </div>
+
+  <!-- ======= OVERVIEW ======= -->
+  <h2 id="overview">1. 概要・技術スタック</h2>
+
+  <table>
+    <tr><th>項目</th><th>技術</th><th>理由</th></tr>
+    <tr><td>UI フレームワーク</td><td>SwiftUI (iOS 17+)</td><td>宣言的 UI・モダン API・ライブアクティビティ等への拡張性</td></tr>
+    <tr><td>アーキテクチャ</td><td>MVVM</td><td>SwiftUI との相性が最良・テストしやすい ViewModel 分離</td></tr>
+    <tr><td>非同期処理</td><td>Swift Concurrency (async/await)</td><td>コールバック地獄なし・型安全</td></tr>
+    <tr><td>ネットワーク</td><td>URLSession (async/await)</td><td>標準ライブラリで完結・追加依存なし</td></tr>
+    <tr><td>音声再生</td><td>AVFoundation (AVPlayer)</td><td>速度制御・再生位置保存・バックグラウンド再生に対応</td></tr>
+    <tr><td>設定永続化</td><td>UserDefaults（@AppStorage）</td><td>API キー・デフォルト設定を端末に保存</td></tr>
+    <tr><td>テスト</td><td>XCTest + Swift Testing</td><td>ViewModel の単体テスト・モック URLSession</td></tr>
+  </table>
+
+  <!-- ======= NAVIGATION ======= -->
+  <h2 id="navigation">2. 画面構成・ナビゲーション</h2>
+
+  <svg class="svg-diagram" viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
+    <defs>
+      <marker id="an" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1,1 L1,7 L8,4 z" fill="#4fc3f7"/></marker>
+    </defs>
+    <!-- App entry -->
+    <rect x="290" y="16" width="240" height="44" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="2"/>
+    <text x="410" y="36" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">TechNewsPodcastApp</text>
+    <text x="410" y="52" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">@main · AppState 生成</text>
+    <!-- Branch: unconfigured -->
+    <line x1="330" y1="60" x2="160" y2="96" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
+    <rect x="56" y="96" width="208" height="40" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1.5" stroke-dasharray="4,2"/>
+    <text x="160" y="113" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">InitialSetupView</text>
+    <text x="160" y="128" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">API URL + キー入力</text>
+    <text x="225" y="90" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">未設定時</text>
+    <!-- Branch: configured → ContentView -->
+    <line x1="490" y1="60" x2="660" y2="96" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
+    <text x="595" y="90" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">設定済み</text>
+    <rect x="556" y="96" width="208" height="40" rx="6" fill="#0f1e28" stroke="#4fc3f7" stroke-width="2"/>
+    <text x="660" y="113" fill="#4fc3f7" font-size="12" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">ContentView (TabView)</text>
+    <text x="660" y="128" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">4タブ構成</text>
+    <!-- 4 tabs -->
+    <line x1="590" y1="136" x2="160" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <line x1="620" y1="136" x2="370" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <line x1="700" y1="136" x2="580" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <line x1="730" y1="136" x2="760" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <!-- Tab 1: Feed -->
+    <rect x="56" y="180" width="208" height="82" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="160" y="198" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 1: FeedView</text>
+    <text x="160" y="214" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">ArticleRowView × N</text>
+    <text x="160" y="230" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">右スワイプ → Star (★)</text>
+    <text x="160" y="246" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">左スワイプ → Dismiss (×)</text>
+    <!-- Tab 2: Podcast -->
+    <rect x="272" y="180" width="208" height="82" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="376" y="198" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 2: PodcastView</text>
+    <text x="376" y="214" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">PodcastRowView × N</text>
+    <text x="376" y="230" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">タップ → AudioPlayerView</text>
+    <text x="376" y="246" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">速度制御 · 再生位置保存</text>
+    <!-- Tab 3: Subscriptions -->
+    <rect x="488" y="180" width="208" height="82" rx="6" fill="#1e2b1e" stroke="#4caf82" stroke-width="2"/>
+    <text x="592" y="198" fill="#4caf82" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 3: SubscriptionsView</text>
+    <text x="592" y="214" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">購読ソース一覧</text>
+    <text x="592" y="230" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">スワイプ削除 · + ボタン追加</text>
+    <text x="592" y="246" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">AddSubscriptionSheet</text>
+    <!-- Tab 4: Settings -->
+    <rect x="704" y="180" width="100" height="82" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1"/>
+    <text x="754" y="198" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 4</text>
+    <text x="754" y="213" fill="#c8cad8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">Settings</text>
+    <text x="754" y="228" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">難易度 Picker</text>
+    <text x="754" y="243" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">速度 Slider</text>
+    <text x="754" y="258" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">API 設定</text>
+  </svg>
+
+  <!-- ======= SCREENS ======= -->
+  <h2 id="screens">3. 各画面の設計</h2>
+
+  <div class="screen">
+    <h4>FeedView <span class="screen-path">Tab 1 — Feed</span></h4>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>記事リスト</td><td>List + LazyVStack。スコア降順（最大 50 件）</td></tr>
+      <tr><td>スワイプ操作</td><td><code>.swipeActions(edge: .leading)</code> → Star（黄★）<br><code>.swipeActions(edge: .trailing)</code> → Dismiss（赤×）</td></tr>
+      <tr><td>タップ</td><td>元記事を SafariServices (SFSafariViewController) で開く</td></tr>
+      <tr><td>ローディング</td><td><code>.task</code> で初回フェッチ。ProgressView 表示</td></tr>
+      <tr><td>リフレッシュ</td><td><code>.refreshable</code> でプルトゥリフレッシュ</td></tr>
+      <tr><td>空状態</td><td><code>ContentUnavailableView</code>（iOS 17 標準）</td></tr>
+      <tr><td>エラー</td><td><code>.alert</code> でエラーメッセージ表示</td></tr>
+    </table>
+  </div>
+
+  <div class="screen">
+    <h4>PodcastView <span class="screen-path">Tab 2 — Podcast</span></h4>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>エピソードリスト</td><td>タイトル・難易度バッジ・再生時間・ステータス</td></tr>
+      <tr><td>ステータス表示</td><td>生成中: ProgressView スピナー、失敗: exclamationmark アイコン、完了: 再生アイコン</td></tr>
+      <tr><td>ポーリング</td><td>processing 状態のエピソードを 5 秒ごとに GET /podcasts/:id で状態確認</td></tr>
+      <tr><td>AudioPlayerView</td><td>タップで展開。再生/一時停止・シークバー・速度セグメント・日本語イントロ表示</td></tr>
+      <tr><td>バックグラウンド再生</td><td>AVAudioSession + Background Modes 設定（音楽）</td></tr>
+    </table>
+  </div>
+
+  <div class="screen">
+    <h4>SubscriptionsView <span class="screen-path">Tab 3 — 購読管理（専用タブ）</span></h4>
+    <p>RSS 購読ソースの一覧・追加・削除を行う専用画面。</p>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>ソース一覧</td><td>List でソース名と URL を表示。デフォルト2件（HackerNews / Zenn）</td></tr>
+      <tr><td>スワイプ削除</td><td><code>.onDelete</code> → 確認アクションシート → DELETE /subscriptions/:id</td></tr>
+      <tr><td>追加ボタン</td><td>ツールバーの <code>+</code> ボタン → AddSubscriptionSheet をシート表示</td></tr>
+      <tr><td>AddSubscriptionSheet</td><td>「ソース名」「RSS URL」TextField + 追加ボタン（インラインバリデーション）</td></tr>
+      <tr><td>バリデーション</td><td>URL 形式チェック（クライアント）+ エラーレスポンスをインライン表示</td></tr>
+      <tr><td>エラー表示</td><td>409 重複: 「この URL は登録済みです」、422: 「RSS フィードとして読み込めません」</td></tr>
+    </table>
+    <h4>AddSubscriptionSheet の詳細フロー</h4>
+    <ol>
+      <li>「ソース名」と「RSS URL」を TextField に入力</li>
+      <li>追加ボタンタップ（名前・URL が空の場合は無効）</li>
+      <li>POST /subscriptions → 成功時: シートを閉じて一覧を更新</li>
+      <li>失敗時: シートを閉じず、TextField の下にエラーメッセージを表示</li>
+    </ol>
+  </div>
+
+  <div class="screen">
+    <h4>SettingsView <span class="screen-path">Tab 4 — 設定</span></h4>
+    <table>
+      <tr><th>設定項目</th><th>UI</th><th>保存先</th></tr>
+      <tr><td>デフォルト難易度</td><td>Picker（6 段階）</td><td>UserDefaults + PUT /settings</td></tr>
+      <tr><td>デフォルト再生速度</td><td>Slider（0.5〜2.5）</td><td>UserDefaults + PUT /settings</td></tr>
+      <tr><td>API エンドポイント URL</td><td>TextField</td><td>UserDefaults</td></tr>
+      <tr><td>API キー</td><td>SecureField</td><td>UserDefaults（Keychain 移行は P2）</td></tr>
+    </table>
+  </div>
+
+  <!-- ======= MVVM ======= -->
+  <h2 id="mvvm">4. MVVM アーキテクチャ</h2>
+
+  <h3>依存関係図</h3>
+  <svg class="svg-diagram" viewBox="0 0 820 240" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
+    <defs>
+      <marker id="am" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1,1 L1,7 L8,4 z" fill="#4fc3f7"/></marker>
+      <marker id="amv" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1,1 L1,7 L8,4 z" fill="#a89cf5"/></marker>
+    </defs>
+    <!-- AppState (global) -->
+    <rect x="292" y="16" width="236" height="62" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="2"/>
+    <text x="410" y="38" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">AppState</text>
+    <text x="410" y="54" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">@Observable  ·  全 View で共有</text>
+    <text x="410" y="70" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">apiClient: APIClient · audioPlayer</text>
+    <!-- APIClient (right) -->
+    <rect x="620" y="16" width="180" height="62" rx="8" fill="#0f1e28" stroke="#4fc3f7" stroke-width="1.5"/>
+    <text x="710" y="44" fill="#4fc3f7" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">APIClient</text>
+    <text x="710" y="62" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">URLSession wrapper</text>
+    <!-- AppState → APIClient -->
+    <line x1="528" y1="47" x2="618" y2="47" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#am)"/>
+    <!-- AudioPlayerState (left) -->
+    <rect x="20" y="16" width="200" height="62" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="120" y="38" fill="#a89cf5" font-size="12" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">AudioPlayerState</text>
+    <text x="120" y="54" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">AVPlayer wrapper</text>
+    <text x="120" y="70" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">@Observable</text>
+    <!-- AppState → AudioPlayerState -->
+    <line x1="292" y1="47" x2="222" y2="47" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#amv)"/>
+    <!-- ViewModels row -->
+    <rect x="20" y="140" width="166" height="44" rx="6" fill="#1e1a30" stroke="#a89cf5" stroke-width="1"/>
+    <text x="103" y="158" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">FeedViewModel</text>
+    <text x="103" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">記事 · Star · Dismiss</text>
+    <rect x="202" y="140" width="166" height="44" rx="6" fill="#1e1a30" stroke="#a89cf5" stroke-width="1"/>
+    <text x="285" y="158" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">PodcastViewModel</text>
+    <text x="285" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">一覧 · 再生 · ポーリング</text>
+    <rect x="384" y="140" width="184" height="44" rx="6" fill="#1e2b1e" stroke="#4caf82" stroke-width="1.5"/>
+    <text x="476" y="158" fill="#4caf82" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">SubscriptionsViewModel</text>
+    <text x="476" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">RSS 一覧 · 追加 · 削除</text>
+    <rect x="584" y="140" width="166" height="44" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1"/>
+    <text x="667" y="158" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">SettingsViewModel</text>
+    <text x="667" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">設定 · AppState 同期</text>
+    <!-- AppState → each ViewModel (inject) -->
+    <line x1="350" y1="78" x2="103" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <line x1="380" y1="78" x2="285" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <line x1="430" y1="78" x2="476" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <line x1="460" y1="78" x2="667" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <!-- ViewModels → APIClient -->
+    <line x1="186" y1="162" x2="618" y2="55" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
+    <line x1="368" y1="162" x2="622" y2="58" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
+    <line x1="568" y1="162" x2="626" y2="62" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
+    <line x1="750" y1="162" x2="730" y2="80" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
+    <!-- PodcastViewModel → AudioPlayerState -->
+    <line x1="202" y1="168" x2="220" y2="168" stroke="#a89cf5" stroke-width="1" stroke-dasharray="3,2"/>
+    <line x1="120" y1="78" x2="120" y2="138" stroke="#a89cf5" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#amv)"/>
+    <text x="140" y="112" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">再生制御</text>
+    <!-- legend -->
+    <text x="20" y="218" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">凡例:</text>
+    <line x1="55" y1="214" x2="80" y2="214" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="84" y="218" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">AppState から注入</text>
+    <line x1="180" y1="214" x2="205" y2="214" stroke="#4fc3f7" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <text x="209" y="218" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">APIClient 呼び出し</text>
+  </svg>
+
+  <h3>ViewModel 責務</h3>
+  <table>
+    <tr><th>ViewModel</th><th>責務</th></tr>
+    <tr><td>FeedViewModel</td><td>記事一覧の取得・Star/Dismiss 操作・リスト更新</td></tr>
+    <tr><td>PodcastViewModel</td><td>エピソード一覧の取得・生成中エピソードのポーリング・再生トリガー</td></tr>
+    <tr><td>SubscriptionsViewModel</td><td>RSS ソース一覧の取得・追加（バリデーション含む）・削除</td></tr>
+    <tr><td>SettingsViewModel</td><td>設定の読み込み・更新・AppState との同期</td></tr>
+    <tr><td>AudioPlayerState</td><td>AVPlayer のラッパー・再生位置のポーリング保存・速度制御</td></tr>
+  </table>
+
+  <!-- ======= APPSTATE ======= -->
+  <h2 id="appstate">5. AppState 設計</h2>
+
+  <pre>// AppState.swift
+@Observable
+final class AppState {
+
+  // MARK: - API 設定（UserDefaults 永続化）
+  @AppStorage("api_base_url")   var apiBaseURL: String = ""
+  @AppStorage("api_key")        var apiKey: String = ""
+  @AppStorage("default_difficulty")    var defaultDifficulty: String = "toeic_900"
+  @AppStorage("default_playback_speed") var defaultPlaybackSpeed: Double = 1.0
+
+  // MARK: - 音声再生状態（メモリのみ）
+  var currentPodcast: Podcast?
+  var isPlaying: Bool = false
+  var currentTimeSeconds: Double = 0
+  var durationSeconds: Double = 0
+  var playbackSpeed: Float = 1.0
+
+  // MARK: - 派生プロパティ
+  var isConfigured: Bool { !apiBaseURL.isEmpty && !apiKey.isEmpty }
+
+  var apiClient: APIClient? {
+    guard isConfigured, let url = URL(string: apiBaseURL) else { return nil }
+    return APIClient(baseURL: url, apiKey: apiKey)
+  }
+}</pre>
+
+  <!-- ======= API CLIENT ======= -->
+  <h2 id="api-client">6. API クライアント設計</h2>
+
+  <pre>// Networking/APIClient.swift
+protocol URLSessionProtocol {
+  func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+extension URLSession: URLSessionProtocol {}
+
+enum APIError: LocalizedError {
+  case invalidURL
+  case httpError(statusCode: Int, detail: String)
+  case decodingError(Error)
+}
+
+@MainActor
+final class APIClient {
+  private let baseURL: URL
+  private let apiKey: String
+  private let session: URLSessionProtocol
+
+  init(baseURL: URL, apiKey: String, session: URLSessionProtocol = URLSession.shared) {
+    self.baseURL = baseURL; self.apiKey = apiKey; self.session = session
+  }
+
+  // Feed
+  func fetchFeed() async throws -> FeedResponse
+  func starArticle(id: String) async throws -> StarResponse
+  func dismissArticle(id: String) async throws
+
+  // Podcasts
+  func fetchPodcasts() async throws -> PodcastListResponse
+  func fetchPodcast(id: String) async throws -> Podcast
+  func updatePosition(podcastId: String, seconds: Double) async throws
+
+  // Subscriptions（RSS 管理）
+  func fetchSubscriptions() async throws -> SubscriptionsResponse
+  func addSubscription(name: String, url: String) async throws -> SubscriptionsResponse
+  func deleteSubscription(id: String) async throws
+
+  // Settings
+  func fetchSettings() async throws -> Settings
+  func updateSettings(_ settings: Settings) async throws -> Settings
+}</pre>
+
+  <h3>モックテスト戦略</h3>
+  <p><code>URLSessionProtocol</code> に準拠した <code>MockURLSession</code> をテスト用に定義し、<code>APIClient</code> に注入する。ViewModel のテストでは <code>APIClient</code> 自体をモック可能なプロトコル（<code>APIClientProtocol</code>）に差し替える。</p>
+
+  <!-- ======= AVPLAYER ======= -->
+  <h2 id="avplayer">7. 音声再生（AVPlayer）設計</h2>
+
+  <pre>// Podcast/AudioPlayerState.swift
+@Observable
+final class AudioPlayerState {
+  private var player: AVPlayer?
+  private var timeObserver: Any?
+  private var positionSaveTask: Task&lt;Void, Never&gt;?
+
+  var currentPodcast: Podcast?
+  var isPlaying: Bool = false
+  var currentTime: Double = 0
+  var duration: Double = 0
+  var speed: Float = 1.0
+
+  func play(podcast: Podcast) {
+    // 1. 既存の再生を停止・クリーンアップ
+    stopAndCleanup()
+
+    // 2. AVAudioSession を .playback カテゴリに設定（バックグラウンド再生）
+    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+    try? AVAudioSession.sharedInstance().setActive(true)
+
+    // 3. AVPlayerItem 生成・再生位置復元
+    guard let url = URL(string: podcast.audioUrl ?? "") else { return }
+    let item = AVPlayerItem(url: url)
+    player = AVPlayer(playerItem: item)
+    player?.rate = speed
+    player?.seek(to: CMTime(seconds: podcast.playbackPositionSeconds, preferredTimescale: 600))
+    player?.play()
+
+    // 4. 再生位置の定期更新（0.5 秒ごと）
+    timeObserver = player?.addPeriodicTimeObserver(
+      forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+      queue: .main
+    ) { [weak self] time in
+      self?.currentTime = time.seconds
+      self?.duration = item.duration.seconds.isNaN ? 0 : item.duration.seconds
+    }
+
+    // 5. 10 秒ごとに PATCH /podcasts/:id/position を送信
+    positionSaveTask = Task { ... }
+
+    currentPodcast = podcast
+    isPlaying = true
+  }
+
+  func togglePlayPause() { ... }
+  func seek(to seconds: Double) { ... }
+  func setSpeed(_ speed: Float) { player?.rate = isPlaying ? speed : 0; self.speed = speed }
+
+  private func stopAndCleanup() {
+    positionSaveTask?.cancel()
+    if let obs = timeObserver { player?.removeTimeObserver(obs) }
+    player?.pause()
+    player = nil
+    isPlaying = false
+  }
+}</pre>
+
+  <h3>バックグラウンド再生設定</h3>
+  <p>Info.plist の <code>UIBackgroundModes</code> に <code>audio</code> を追加。<code>AVAudioSession.Category.playback</code> + <code>AVAudioSession.Mode.spokenAudio</code> でポッドキャスト向けの設定にする。</p>
+
+  <!-- ======= FILE STRUCTURE ======= -->
+  <h2 id="filestructure">8. ファイル構成</h2>
+
+  <pre>ios/TechNewsPodcast/
+├── TechNewsPodcastApp.swift        # @main エントリポイント
+├── ContentView.swift               # TabView（Feed/Podcast/Subscriptions/Settings）
+├── InitialSetupView.swift          # API 未設定時の初回セットアップ画面
+│
+├── AppState.swift                  # グローバル状態（@Observable）
+│
+├── Models/
+│   ├── Article.swift               # Codable: フィード記事
+│   ├── Podcast.swift               # Codable: エピソード
+│   ├── RssSource.swift             # Codable: RSS ソース
+│   └── Settings.swift             # Codable: 設定
+│
+├── Networking/
+│   ├── APIClient.swift             # URLSession ラッパー・全 API メソッド
+│   ├── APIEndpoint.swift           # エンドポイント定義
+│   └── APIError.swift             # エラー型
+│
+├── Feed/
+│   ├── FeedView.swift
+│   ├── FeedViewModel.swift
+│   └── ArticleRowView.swift
+│
+├── Podcast/
+│   ├── PodcastView.swift
+│   ├── PodcastViewModel.swift
+│   ├── PodcastRowView.swift
+│   ├── AudioPlayerView.swift       # 再生コントロール UI
+│   └── AudioPlayerState.swift      # AVPlayer ラッパー（@Observable）
+│
+├── Subscriptions/                  ← RSS 購読管理（専用タブ）
+│   ├── SubscriptionsView.swift     # 一覧 + 追加ボタン
+│   ├── SubscriptionsViewModel.swift
+│   ├── SubscriptionRowView.swift   # 各行（スワイプ削除対応）
+│   └── AddSubscriptionSheet.swift  # URL 追加モーダル
+│
+├── Settings/
+│   ├── SettingsView.swift
+│   └── SettingsViewModel.swift
+│
+└── Tests/
+    ├── APIClientTests.swift
+    ├── FeedViewModelTests.swift
+    ├── PodcastViewModelTests.swift
+    ├── SubscriptionsViewModelTests.swift  ← RSS 追加・削除テスト
+    └── SettingsViewModelTests.swift</pre>
+
+  <h3>テスト方針</h3>
+  <table>
+    <tr><th>テスト対象</th><th>テスト内容</th></tr>
+    <tr><td>APIClient</td><td>モック URLSession でレスポンスデコード・エラーハンドリング</td></tr>
+    <tr><td>FeedViewModel</td><td>記事取得・Star 後のリスト除去・Dismiss 後のリスト除去</td></tr>
+    <tr><td>PodcastViewModel</td><td>一覧取得・processing 状態のポーリング停止（completed 受信後）</td></tr>
+    <tr><td>SubscriptionsViewModel</td><td>追加成功・URL 重複 409 エラー表示・削除後のリスト更新</td></tr>
+    <tr><td>AudioPlayerState</td><td>speed 変更が AVPlayer.rate に反映される（モック AVPlayer）</td></tr>
+  </table>
+
+  <div class="warn">
+    <strong>Phase 2 実装時の注意点</strong><br>
+    <ul style="margin-top:8px; padding-left: 18px;">
+      <li>Keychain への API キー移行（UserDefaults は暗号化されない）</li>
+      <li>APNs Push 通知の実装（Podcast 生成完了通知）</li>
+      <li>オフライン再生のためのローカルキャッシュ（FileManager + Background Downloads）</li>
+      <li>OpenAI TTS への切り替えに伴う音声 URL 形式の変更対応</li>
+    </ul>
+  </div>
+
+</main>
+</body>
+</html>
