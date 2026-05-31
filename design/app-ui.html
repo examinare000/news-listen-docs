@@ -1,0 +1,2144 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AudioNews — Web App UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  (function(){
+    var saved = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = saved || (prefersDark ? 'dark' : 'light');
+  })();
+</script>
+<style>
+/* ── Reset & Tokens ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-base:     #0B0A0E;
+  --bg-raised:   #141219;
+  --bg-surface:  #1D1B24;
+  --bg-overlay:  #252330;
+  --border:      rgba(255,255,255,.07);
+  --border-mid:  rgba(255,255,255,.12);
+
+  --text-primary:   #F0EDE8;
+  --text-secondary: #A09CA8;
+  --text-muted:     #5E5A68;
+
+  --amber:      #F0A030;
+  --amber-glow: rgba(240,160,48,.18);
+  --amber-dim:  rgba(240,160,48,.08);
+  --teal:       #38BEC9;
+  --teal-glow:  rgba(56,190,201,.15);
+  --green:      #56C68A;
+  --red:        #E05C5C;
+  --purple:     #9B7CF8;
+
+  --bg-glass-header: rgba(11,10,14,.88);
+  --bg-glass-player: rgba(20,18,25,.96);
+
+  --player-h:  72px;
+  --sidebar-w: 220px;
+  --radius:    10px;
+  --radius-sm: 6px;
+}
+
+/* ── Light Theme ─────────────────────────────────────────────── */
+html[data-theme="light"] {
+  --bg-base:     #F5F2EC;
+  --bg-raised:   #FFFFFF;
+  --bg-surface:  #EDE9E2;
+  --bg-overlay:  #E2DDD5;
+  --border:      rgba(0,0,0,.08);
+  --border-mid:  rgba(0,0,0,.15);
+
+  --text-primary:   #1C1914;
+  --text-secondary: #5C5750;
+  --text-muted:     #A09890;
+
+  --amber:      #C87A10;
+  --amber-glow: rgba(200,122,16,.2);
+  --amber-dim:  rgba(200,122,16,.1);
+  --teal:       #1A96A0;
+  --teal-glow:  rgba(26,150,160,.15);
+  --green:      #2A9055;
+  --red:        #C43030;
+  --purple:     #7045E0;
+
+  --bg-glass-header: rgba(245,242,236,.92);
+  --bg-glass-player: rgba(255,255,255,.96);
+}
+
+/* ── Theme Transition ────────────────────────────────────────── */
+*, *::before, *::after {
+  transition:
+    background-color .25s ease,
+    border-color .25s ease,
+    color .18s ease,
+    box-shadow .25s ease !important;
+}
+/* Exceptions: animations & transforms should not be overridden */
+.player-art-bar, .waveform-mini-bar, .status-dot,
+.progress-fill, .score-bar-fill, .podcast-card::after {
+  transition: none !important;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+/* ── Noise texture overlay ────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 1;
+  transition: none !important;
+}
+
+html[data-theme="light"] body::before { opacity: .5; }
+
+/* ── Layout ──────────────────────────────────────────────────── */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: 1fr var(--player-h);
+  height: 100vh;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.sidebar {
+  grid-row: 1 / 2;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 0;
+  overflow: hidden;
+}
+
+.sidebar-logo {
+  padding: 0 20px 28px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.logo-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  width: 34px; height: 34px;
+  background: var(--amber);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.logo-icon svg { color: var(--bg-base); }
+
+.logo-text {
+  font-family: 'Playfair Display', serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -.01em;
+}
+
+.logo-text span {
+  color: var(--amber);
+}
+
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 20px;
+  margin-bottom: 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  cursor: pointer;
+  border-radius: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: all .15s ease;
+  position: relative;
+  user-select: none;
+  margin: 1px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.nav-item:hover {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -10px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 18px;
+  background: var(--amber);
+  border-radius: 2px;
+}
+
+.nav-item .nav-icon {
+  width: 18px; height: 18px;
+  flex-shrink: 0;
+  opacity: .8;
+}
+
+.nav-item.active .nav-icon { opacity: 1; }
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--amber);
+  color: var(--bg-base);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
+  line-height: 1.5;
+}
+
+.sidebar-divider { height: 1px; background: var(--border); margin: 12px 20px; }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px 20px 0;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse-dot 2s ease infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+/* ── Main Content ────────────────────────────────────────────── */
+.main-content {
+  grid-column: 2;
+  grid-row: 1;
+  overflow-y: auto;
+  position: relative;
+}
+
+.view { display: none; height: 100%; }
+.view.active { display: flex; flex-direction: column; }
+
+/* ── Page Header ─────────────────────────────────────────────── */
+.page-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-glass-header);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 20px 32px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.page-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all .15s ease;
+}
+
+.btn-primary {
+  background: var(--amber);
+  color: var(--bg-base);
+}
+.btn-primary:hover { background: #E8921A; transform: translateY(-1px); box-shadow: 0 4px 16px var(--amber-glow); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-mid);
+}
+.btn-ghost:hover { background: var(--bg-overlay); color: var(--text-primary); }
+
+.btn-icon {
+  width: 32px; height: 32px;
+  padding: 0;
+  justify-content: center;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-icon:hover { background: var(--bg-overlay); color: var(--text-primary); }
+
+/* ── Content Area ────────────────────────────────────────────── */
+.content-area { padding: 24px 32px; flex: 1; }
+
+/* ── Feed View ───────────────────────────────────────────────── */
+.feed-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(11,10,14,.88);
+  backdrop-filter: blur(16px);
+}
+
+.feed-tab {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all .15s;
+  position: relative;
+  top: 1px;
+}
+
+.feed-tab.active {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
+
+.feed-tab:hover:not(.active) {
+  color: var(--text-secondary);
+}
+
+.article-list { display: flex; flex-direction: column; gap: 2px; }
+
+.article-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  transition: all .2s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  animation: card-enter .3s ease both;
+}
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.article-card:nth-child(2) { animation-delay: .05s; }
+.article-card:nth-child(3) { animation-delay: .1s; }
+.article-card:nth-child(4) { animation-delay: .15s; }
+.article-card:nth-child(5) { animation-delay: .2s; }
+
+.article-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: transparent;
+  transition: background .2s;
+}
+
+.article-card:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-mid);
+}
+
+.article-card:hover::before { background: var(--amber); }
+
+.article-card.starred::before { background: var(--amber); }
+
+.article-rank {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 24px;
+}
+
+.article-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.article-source {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--teal);
+}
+
+.article-dot { color: var(--text-muted); font-size: 10px; }
+
+.article-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'DM Mono', monospace;
+}
+
+.article-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  letter-spacing: -.01em;
+}
+
+.article-title a {
+  color: inherit;
+  text-decoration: none;
+  transition: color .15s;
+}
+.article-title a:hover { color: var(--amber); }
+
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.score-bar-track {
+  flex: 1;
+  height: 3px;
+  background: var(--bg-overlay);
+  border-radius: 2px;
+  overflow: hidden;
+  max-width: 120px;
+}
+
+.score-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--amber), #F5C842);
+  transition: width .6s cubic-bezier(.22,1,.36,1);
+}
+
+.score-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.article-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: center;
+}
+
+.action-btn {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s ease;
+  color: var(--text-secondary);
+}
+
+.action-btn:hover { transform: scale(1.08); }
+
+.action-btn.star:hover {
+  background: var(--amber-dim);
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.action-btn.star.active {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--bg-base);
+}
+
+.action-btn.dismiss:hover {
+  background: rgba(224,92,92,.1);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ── Podcast View ────────────────────────────────────────────── */
+.podcast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.podcast-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  cursor: pointer;
+  transition: all .2s ease;
+  position: relative;
+  animation: card-enter .3s ease both;
+}
+
+.podcast-card:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-mid);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+}
+
+.podcast-card.playing {
+  border-color: var(--amber);
+  background: var(--amber-dim);
+}
+
+.podcast-card.playing::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: var(--radius);
+  border: 1px solid var(--amber);
+  animation: playing-pulse 2s ease infinite;
+  pointer-events: none;
+}
+
+@keyframes playing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+.podcast-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.podcast-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.badge-processing { background: rgba(56,190,201,.12); color: var(--teal); border: 1px solid rgba(56,190,201,.2); }
+.badge-completed  { background: rgba(86,198,138,.12); color: var(--green); border: 1px solid rgba(86,198,138,.2); }
+.badge-failed     { background: rgba(224,92,92,.12); color: var(--red); border: 1px solid rgba(224,92,92,.2); }
+
+.badge-easy   { background: rgba(86,198,138,.1); color: var(--green); }
+.badge-medium { background: rgba(240,160,48,.1); color: var(--amber); }
+.badge-hard   { background: rgba(155,124,248,.1); color: var(--purple); }
+
+.podcast-play-btn {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-mid);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all .2s;
+  flex-shrink: 0;
+}
+
+.podcast-play-btn:hover, .podcast-card.playing .podcast-play-btn {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--bg-base);
+  box-shadow: 0 0 20px var(--amber-glow);
+}
+
+.podcast-intro {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.podcast-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.podcast-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.podcast-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Waveform loading animation */
+.waveform-mini {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.waveform-mini-bar {
+  width: 2px;
+  background: var(--teal);
+  border-radius: 2px;
+  animation: wave-mini 1s ease infinite;
+}
+
+.waveform-mini-bar:nth-child(1) { animation-delay: 0s; }
+.waveform-mini-bar:nth-child(2) { animation-delay: .15s; }
+.waveform-mini-bar:nth-child(3) { animation-delay: .3s; }
+.waveform-mini-bar:nth-child(4) { animation-delay: .15s; }
+
+@keyframes wave-mini {
+  0%, 100% { height: 4px; }
+  50%       { height: 14px; }
+}
+
+/* ── Subscriptions View ─────────────────────────────────────── */
+.subs-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+}
+
+.subs-list { display: flex; flex-direction: column; gap: 8px; }
+
+.sub-row {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: border-color .15s;
+  animation: card-enter .25s ease both;
+}
+
+.sub-row:hover { border-color: var(--border-mid); }
+
+.sub-icon {
+  width: 38px; height: 38px;
+  border-radius: 8px;
+  background: var(--bg-overlay);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.sub-info { flex: 1; min-width: 0; }
+.sub-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.sub-url {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sub-toggle {
+  width: 36px; height: 20px;
+  background: var(--green);
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+
+.sub-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: white;
+  transition: transform .2s;
+}
+
+.sub-toggle.off {
+  background: var(--bg-overlay);
+}
+
+.sub-toggle.off::after {
+  transform: translateX(0);
+}
+
+.sub-toggle:not(.off)::after {
+  transform: translateX(16px);
+}
+
+.sub-delete {
+  width: 30px; height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+
+.sub-delete:hover {
+  background: rgba(224,92,92,.1);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.add-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  position: sticky;
+  top: 20px;
+}
+
+.add-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.add-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.form-field { margin-bottom: 14px; }
+
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.form-input {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.form-input::placeholder { color: var(--text-muted); }
+
+.form-input:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-dim);
+}
+
+/* ── Settings View ──────────────────────────────────────────── */
+.settings-section {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  overflow: hidden;
+  animation: card-enter .25s ease both;
+}
+
+.settings-section-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-section-icon {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+
+.settings-row {
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child { border-bottom: none; }
+
+.settings-row-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.settings-row-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.select-input {
+  background: var(--bg-base);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235E5A68' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  min-width: 160px;
+}
+
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.speed-slider {
+  -webkit-appearance: none;
+  width: 160px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--amber) 44%, var(--bg-overlay) 44%);
+  outline: none;
+  cursor: pointer;
+}
+
+.speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--amber);
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--amber-glow);
+  transition: transform .1s;
+}
+
+.speed-slider::-webkit-slider-thumb:active { transform: scale(1.2); }
+
+.speed-value {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  color: var(--amber);
+  min-width: 30px;
+}
+
+/* ── Audio Player Bar ────────────────────────────────────────── */
+.player-bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  background: var(--bg-glass-player);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border-mid);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 24px;
+  gap: 24px;
+  position: relative;
+}
+
+.player-bar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--amber) 30%, #F5C842 70%, transparent);
+  opacity: .6;
+}
+
+/* Track Info */
+.player-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.player-art {
+  width: 44px; height: 44px;
+  border-radius: 8px;
+  background: var(--amber-dim);
+  border: 1px solid var(--amber);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.player-art-waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+}
+
+.player-art-bar {
+  width: 2px;
+  background: var(--amber);
+  border-radius: 2px;
+  animation: wave-art 0.8s ease infinite;
+}
+
+.player-art-bar:nth-child(1) { animation-delay: 0s; }
+.player-art-bar:nth-child(2) { animation-delay: .1s; }
+.player-art-bar:nth-child(3) { animation-delay: .2s; }
+.player-art-bar:nth-child(4) { animation-delay: .1s; }
+.player-art-bar:nth-child(5) { animation-delay: 0s; }
+
+@keyframes wave-art {
+  0%, 100% { height: 4px; }
+  50%       { height: 18px; }
+}
+
+.player-info { min-width: 0; }
+
+.player-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.player-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Controls */
+.player-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.player-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctrl-btn {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+}
+
+.ctrl-btn:hover { color: var(--text-primary); background: var(--bg-overlay); }
+
+.ctrl-btn-main {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: var(--bg-base);
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+
+.ctrl-btn-main:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 24px var(--amber-glow);
+}
+
+.player-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 360px;
+}
+
+.progress-time {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 30px;
+}
+
+.progress-time.end { text-align: right; }
+
+.progress-track {
+  flex: 1;
+  height: 3px;
+  background: var(--bg-overlay);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), #F5C842);
+  border-radius: 2px;
+  width: 38%;
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  right: -5px; top: -4px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber-glow);
+}
+
+/* Player Extra */
+.player-extra {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.speed-pill {
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--amber);
+  cursor: pointer;
+  transition: all .15s;
+  user-select: none;
+}
+
+.speed-pill:hover { border-color: var(--amber); }
+
+/* ── Toast ───────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+  animation: toast-in .25s ease both;
+  pointer-events: auto;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.toast-icon {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.toast-success .toast-icon { background: rgba(86,198,138,.2); color: var(--green); }
+.toast-info    .toast-icon { background: var(--amber-dim); color: var(--amber); }
+
+/* ── Empty States ────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 60px 40px;
+  color: var(--text-muted);
+}
+
+.empty-state-icon {
+  font-size: 40px;
+  margin-bottom: 14px;
+  opacity: .5;
+}
+
+.empty-state-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.empty-state-desc { font-size: 13px; }
+
+/* ── Theme Toggle ────────────────────────────────────────────── */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  width: 100%;
+  color: var(--text-secondary);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.theme-toggle-track {
+  width: 30px; height: 16px;
+  border-radius: 8px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-mid);
+  flex-shrink: 0;
+  position: relative;
+  transition: background .25s ease !important;
+}
+
+html[data-theme="light"] .theme-toggle-track {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
+.theme-toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1), background .25s ease !important;
+}
+
+html[data-theme="light"] .theme-toggle-thumb {
+  transform: translateX(14px);
+  background: white;
+}
+
+.theme-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+
+.icon-moon { display: inline; }
+.icon-sun  { display: none; }
+
+html[data-theme="light"] .icon-moon { display: none; }
+html[data-theme="light"] .icon-sun  { display: inline; }
+
+.theme-name-dark  { display: inline; }
+.theme-name-light { display: none; }
+html[data-theme="light"] .theme-name-dark  { display: none; }
+html[data-theme="light"] .theme-name-light { display: inline; }
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-overlay); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Skeleton ────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-overlay) 25%, var(--bg-surface) 50%, var(--bg-overlay) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite !important;
+  transition: none !important;
+  border-radius: 4px;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ── Setup Modal ─────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  animation: fade-in .2s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 14px;
+  padding: 36px;
+  width: 440px;
+  animation: modal-in .25s cubic-bezier(.34,1.56,.64,1);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(.92) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.modal-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.modal-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 28px;
+  line-height: 1.7;
+}
+
+/* Responsive utility */
+.mt-auto { margin-top: auto; }
+.flex-1  { flex: 1; }
+.text-center { text-align: center; }
+
+/* ── Sidebar collapsed state for small screens ──────────────── */
+@media (max-width: 900px) {
+  :root { --sidebar-w: 64px; }
+  .logo-text, .nav-item span, .nav-badge,
+  .nav-section-label, .sidebar-footer { display: none; }
+  .nav-item { justify-content: center; padding: 9px 0; margin: 1px 8px; }
+  .nav-item.active::before { left: -8px; }
+  .sidebar-logo { padding: 0 0 20px; display: flex; justify-content: center; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell" id="app">
+
+  <!-- ── Sidebar ─────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <div class="logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M9 18V5l12-2v13"/>
+            <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </div>
+        <span class="logo-text">Audio<span>News</span></span>
+      </div>
+    </div>
+
+    <div class="nav-section-label">メニュー</div>
+
+    <nav>
+      <div class="nav-item active" onclick="switchView('feed')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/>
+        </svg>
+        <span>フィード</span>
+        <div class="nav-badge">12</div>
+      </div>
+
+      <div class="nav-item" onclick="switchView('podcast')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>
+        </svg>
+        <span>ポッドキャスト</span>
+      </div>
+
+      <div class="nav-item" onclick="switchView('subscriptions')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>購読管理</span>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <div class="nav-item" onclick="switchView('settings')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>設定</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-status" style="margin-bottom:12px">
+        <div class="status-dot"></div>
+        <span>バッチ: 正常稼働中</span>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()" title="ライト/ダークモード切り替え">
+        <span class="theme-toggle-track">
+          <span class="theme-toggle-thumb"></span>
+        </span>
+        <span class="theme-toggle-label">
+          <span class="icon-moon">🌙</span>
+          <span class="icon-sun">☀️</span>
+          <span class="theme-name-dark">ダーク</span>
+          <span class="theme-name-light">ライト</span>
+        </span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main Content ──────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- FEED VIEW -->
+    <div class="view active" id="view-feed">
+      <div class="page-header">
+        <div>
+          <div class="page-title">フィード</div>
+          <div class="page-subtitle">今日のレコメンド記事 — 2026年5月31日</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-ghost" style="font-size:12px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            全部スターする
+          </button>
+          <button class="btn btn-icon" title="更新">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.75"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:4px; padding: 0 32px; border-bottom: 1px solid var(--border); background:var(--bg-glass-header); backdrop-filter:blur(16px);">
+        <div class="feed-tab active">すべて <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-left:4px">12</span></div>
+        <div class="feed-tab">未読 <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-left:4px">8</span></div>
+        <div class="feed-tab">★ スター済み <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-left:4px">4</span></div>
+      </div>
+
+      <div class="content-area">
+        <div class="article-list">
+
+          <!-- Article 1 -->
+          <div class="article-card starred">
+            <div>
+              <div class="article-meta">
+                <span class="article-source">HackerNews</span>
+                <span class="article-dot">·</span>
+                <span class="article-date">3時間前</span>
+              </div>
+              <div class="article-title">
+                <a href="#" onclick="return false">Gemini 2.5 Flash Introduces Native Audio Understanding for Multimodal AI Applications</a>
+              </div>
+              <div class="score-row">
+                <div class="score-bar-track">
+                  <div class="score-bar-fill" style="width:92%"></div>
+                </div>
+                <span class="score-label">0.92 関連度</span>
+              </div>
+            </div>
+            <div class="article-actions">
+              <div class="action-btn star active" title="スター済み" onclick="toggleStar(this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              </div>
+              <div class="action-btn dismiss" title="非表示" onclick="dismissCard(this)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Article 2 -->
+          <div class="article-card">
+            <div>
+              <div class="article-meta">
+                <span class="article-source">Zenn.dev</span>
+                <span class="article-dot">·</span>
+                <span class="article-date">5時間前</span>
+              </div>
+              <div class="article-title">
+                <a href="#" onclick="return false">Next.js 15 App Routerで実現するReact Server ComponentsとStreaming UI完全ガイド</a>
+              </div>
+              <div class="score-row">
+                <div class="score-bar-track">
+                  <div class="score-bar-fill" style="width:85%"></div>
+                </div>
+                <span class="score-label">0.85 関連度</span>
+              </div>
+            </div>
+            <div class="article-actions">
+              <div class="action-btn star" title="スターする" onclick="toggleStar(this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              </div>
+              <div class="action-btn dismiss" title="非表示" onclick="dismissCard(this)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Article 3 -->
+          <div class="article-card">
+            <div>
+              <div class="article-meta">
+                <span class="article-source">HackerNews</span>
+                <span class="article-dot">·</span>
+                <span class="article-date">7時間前</span>
+              </div>
+              <div class="article-title">
+                <a href="#" onclick="return false">Claude 3.7 Sonnet Achieves State-of-the-Art Performance on Software Engineering Benchmarks</a>
+              </div>
+              <div class="score-row">
+                <div class="score-bar-track">
+                  <div class="score-bar-fill" style="width:78%"></div>
+                </div>
+                <span class="score-label">0.78 関連度</span>
+              </div>
+            </div>
+            <div class="article-actions">
+              <div class="action-btn star" title="スターする" onclick="toggleStar(this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              </div>
+              <div class="action-btn dismiss" title="非表示" onclick="dismissCard(this)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Article 4 -->
+          <div class="article-card">
+            <div>
+              <div class="article-meta">
+                <span class="article-source" style="color:#9B7CF8">TechCrunch</span>
+                <span class="article-dot">·</span>
+                <span class="article-date">9時間前</span>
+              </div>
+              <div class="article-title">
+                <a href="#" onclick="return false">OpenAI Releases GPT-4.5 with Enhanced Reasoning and 256K Context Window for Enterprise Customers</a>
+              </div>
+              <div class="score-row">
+                <div class="score-bar-track">
+                  <div class="score-bar-fill" style="width:71%"></div>
+                </div>
+                <span class="score-label">0.71 関連度</span>
+              </div>
+            </div>
+            <div class="article-actions">
+              <div class="action-btn star" title="スターする" onclick="toggleStar(this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              </div>
+              <div class="action-btn dismiss" title="非表示" onclick="dismissCard(this)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Article 5 -->
+          <div class="article-card">
+            <div>
+              <div class="article-meta">
+                <span class="article-source">Zenn.dev</span>
+                <span class="article-dot">·</span>
+                <span class="article-date">12時間前</span>
+              </div>
+              <div class="article-title">
+                <a href="#" onclick="return false">TypeScript 5.8の新機能：using宣言とExplicit Resource Managementで変わるリソース管理</a>
+              </div>
+              <div class="score-row">
+                <div class="score-bar-track">
+                  <div class="score-bar-fill" style="width:64%"></div>
+                </div>
+                <span class="score-label">0.64 関連度</span>
+              </div>
+            </div>
+            <div class="article-actions">
+              <div class="action-btn star" title="スターする" onclick="toggleStar(this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              </div>
+              <div class="action-btn dismiss" title="非表示" onclick="dismissCard(this)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- PODCAST VIEW -->
+    <div class="view" id="view-podcast">
+      <div class="page-header">
+        <div>
+          <div class="page-title">ポッドキャスト</div>
+          <div class="page-subtitle">AI生成エピソード一覧</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-primary" style="font-size:12px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新規生成
+          </button>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div class="podcast-grid">
+
+          <!-- Playing episode -->
+          <div class="podcast-card playing" onclick="showToast('再生中のエピソードです', 'info')">
+            <div class="podcast-card-top">
+              <div class="podcast-badges">
+                <span class="badge badge-completed">完了</span>
+                <span class="badge badge-medium">TOEIC 900</span>
+              </div>
+              <button class="podcast-play-btn" onclick="event.stopPropagation()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              </button>
+            </div>
+            <div class="podcast-intro">
+              今日は、GoogleのGemini 2.5 Flashの新機能、ネイティブ音声理解について詳しくお伝えします。マルチモーダルAIの最前線から、エンジニアが知っておくべき重要なアップデートを解説します。
+            </div>
+            <div class="podcast-footer">
+              <div class="podcast-meta">
+                <span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  7:23
+                </span>
+                <span>2026/05/31</span>
+              </div>
+              <div style="display:flex;gap:3px;align-items:center;">
+                <div class="waveform-mini">
+                  <div class="waveform-mini-bar" style="height:8px"></div>
+                  <div class="waveform-mini-bar" style="height:14px"></div>
+                  <div class="waveform-mini-bar" style="height:6px"></div>
+                  <div class="waveform-mini-bar" style="height:12px"></div>
+                </div>
+                <span style="font-size:10px;color:var(--teal);margin-left:4px;font-family:'DM Mono',monospace">再生中</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Processing episode -->
+          <div class="podcast-card">
+            <div class="podcast-card-top">
+              <div class="podcast-badges">
+                <span class="badge badge-processing">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="animation:spin .8s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  生成中
+                </span>
+                <span class="badge badge-hard">IELTS 7.0</span>
+              </div>
+              <button class="podcast-play-btn" style="opacity:.4;cursor:not-allowed" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+            </div>
+            <div class="podcast-intro" style="color:var(--text-muted)">
+              <div class="skeleton" style="height:14px;margin-bottom:6px;width:100%"></div>
+              <div class="skeleton" style="height:14px;width:70%"></div>
+            </div>
+            <div class="podcast-footer">
+              <div class="podcast-meta">
+                <span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  生成中...
+                </span>
+              </div>
+              <span style="font-size:11px;color:var(--teal)">あと約1分</span>
+            </div>
+          </div>
+
+          <!-- Completed episode 2 -->
+          <div class="podcast-card">
+            <div class="podcast-card-top">
+              <div class="podcast-badges">
+                <span class="badge badge-completed">完了</span>
+                <span class="badge badge-easy">英検2級</span>
+              </div>
+              <button class="podcast-play-btn" onclick="startPlaying(this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+            </div>
+            <div class="podcast-intro">
+              Next.js 15のApp RouterとReact Server Componentsを組み合わせることで、モダンなWebアプリケーション開発がどのように変わるのかを、実例を交えて英語で解説します。
+            </div>
+            <div class="podcast-footer">
+              <div class="podcast-meta">
+                <span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  5:47
+                </span>
+                <span>2026/05/31</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Completed episode 3 -->
+          <div class="podcast-card">
+            <div class="podcast-card-top">
+              <div class="podcast-badges">
+                <span class="badge badge-completed">完了</span>
+                <span class="badge badge-medium">TOEIC 600</span>
+              </div>
+              <button class="podcast-play-btn" onclick="startPlaying(this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+            </div>
+            <div class="podcast-intro">
+              本日のダイジェスト：AIと機械学習の最前線から4本の記事をお届けします。Claude、GPT、Geminiそれぞれの最新動向と実践的な活用事例をわかりやすく解説。
+            </div>
+            <div class="podcast-footer">
+              <div class="podcast-meta">
+                <span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  12:04
+                </span>
+                <span>2026/05/30</span>
+              </div>
+              <span style="font-size:10px;color:var(--text-muted);background:var(--bg-overlay);padding:2px 7px;border-radius:4px;font-family:'DM Mono',monospace">DIGEST</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- SUBSCRIPTIONS VIEW -->
+    <div class="view" id="view-subscriptions">
+      <div class="page-header">
+        <div>
+          <div class="page-title">購読管理</div>
+          <div class="page-subtitle">RSS ソースの追加・管理</div>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div class="subs-layout">
+          <div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;font-family:'DM Mono',monospace">2 ソース購読中</div>
+            <div class="subs-list">
+
+              <div class="sub-row">
+                <div class="sub-icon">🔺</div>
+                <div class="sub-info">
+                  <div class="sub-name">Hacker News</div>
+                  <div class="sub-url">https://news.ycombinator.com/rss</div>
+                </div>
+                <div class="sub-toggle" title="有効/無効"></div>
+                <button class="sub-delete" title="削除" onclick="showToast('削除しますか？', 'info')">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
+              </div>
+
+              <div class="sub-row">
+                <div class="sub-icon">🟢</div>
+                <div class="sub-info">
+                  <div class="sub-name">Zenn.dev</div>
+                  <div class="sub-url">https://zenn.dev/feed</div>
+                </div>
+                <div class="sub-toggle" title="有効/無効"></div>
+                <button class="sub-delete" title="削除" onclick="showToast('削除しますか？', 'info')">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+          <div>
+            <div class="add-card">
+              <div class="add-card-title">ソースを追加</div>
+              <div class="add-card-desc">RSS フィードの URL を入力してください。</div>
+
+              <div class="form-field">
+                <label class="form-label">ソース名</label>
+                <input type="text" class="form-input" placeholder="例: TechCrunch" id="sub-name">
+              </div>
+
+              <div class="form-field">
+                <label class="form-label">RSS URL</label>
+                <input type="url" class="form-input" placeholder="https://..." id="sub-url">
+              </div>
+
+              <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="addSubscription()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                追加する
+              </button>
+
+              <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">おすすめのソース</div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-base);border-radius:6px;border:1px solid var(--border);">
+                    <div>
+                      <div style="font-size:12px;font-weight:600">The Verge</div>
+                      <div style="font-size:11px;color:var(--text-muted)">テクノロジー全般</div>
+                    </div>
+                    <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="fillForm('The Verge','https://www.theverge.com/rss/index.xml')">追加</button>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-base);border-radius:6px;border:1px solid var(--border);">
+                    <div>
+                      <div style="font-size:12px;font-weight:600">dev.to</div>
+                      <div style="font-size:11px;color:var(--text-muted)">開発者コミュニティ</div>
+                    </div>
+                    <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="fillForm('dev.to','https://dev.to/feed')">追加</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS VIEW -->
+    <div class="view" id="view-settings">
+      <div class="page-header">
+        <div>
+          <div class="page-title">設定</div>
+          <div class="page-subtitle">アプリの動作をカスタマイズ</div>
+        </div>
+      </div>
+
+      <div class="content-area" style="max-width:600px">
+
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div class="settings-section-icon" style="background:var(--amber-dim)">🎙️</div>
+            <div class="settings-section-title">Podcast 生成</div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">デフォルト難易度</div>
+              <div class="settings-row-desc">Podcast 生成時に適用される難易度</div>
+            </div>
+            <select class="select-input">
+              <option>TOEIC 600相当</option>
+              <option selected>TOEIC 900相当</option>
+              <option>IELTS 5.5相当</option>
+              <option>IELTS 7.0相当</option>
+              <option>英検2級相当</option>
+              <option>英検準1級相当</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">デフォルト再生速度</div>
+              <div class="settings-row-desc">初期再生速度（0.5x 〜 2.5x）</div>
+            </div>
+            <div class="slider-container">
+              <input type="range" class="speed-slider" min="5" max="25" value="12" step="1"
+                oninput="document.getElementById('speed-val').textContent = (this.value/10).toFixed(1) + 'x'">
+              <span class="speed-value" id="speed-val">1.2x</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div class="settings-section-icon" style="background:var(--teal-glow)">🔌</div>
+            <div class="settings-section-title">API 接続設定</div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">API エンドポイント URL</div>
+              <div class="settings-row-desc">バックエンドの Cloud Run URL</div>
+            </div>
+          </div>
+          <div style="padding:0 20px 16px">
+            <input type="url" class="form-input" value="https://api-audio-news-xxxx.run.app" placeholder="https://...">
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">API キー</div>
+              <div class="settings-row-desc">認証キー（localStorage に保存）</div>
+            </div>
+          </div>
+          <div style="padding:0 20px 16px;display:flex;gap:8px">
+            <input type="password" class="form-input" value="sk-audio-xxxxxxxxxxxxxx" placeholder="sk-...">
+            <button class="btn btn-ghost" style="flex-shrink:0">表示</button>
+          </div>
+          <div style="padding:12px 20px;background:rgba(240,160,48,.06);border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);display:flex;gap:8px;align-items:flex-start">
+            <span style="color:var(--amber);font-size:14px;line-height:1">⚠</span>
+            API キーは localStorage に保存されます。XSS への注意が必要です。Phase 2 で httpOnly Cookie へ移行予定。
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div class="settings-section-icon" style="background:rgba(86,198,138,.08)">📊</div>
+            <div class="settings-section-title">ストレージ</div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">キャッシュサイズ</div>
+              <div class="settings-row-desc">ブラウザキャッシュのサイズ</div>
+            </div>
+            <span style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-secondary)">—</span>
+          </div>
+          <div class="settings-row" style="padding-top:16px;padding-bottom:16px">
+            <button class="btn btn-ghost" style="color:var(--red);border-color:rgba(224,92,92,.3)" onclick="showToast('キャッシュをクリアしました', 'success')">
+              キャッシュをクリア
+            </button>
+          </div>
+        </div>
+
+        <div style="text-align:right;padding-top:4px">
+          <button class="btn btn-primary" onclick="showToast('設定を保存しました', 'success')">
+            変更を保存
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ── Audio Player Bar ──────────────────────────── -->
+  <footer class="player-bar">
+    <!-- Track Info -->
+    <div class="player-track">
+      <div class="player-art">
+        <div class="player-art-waveform">
+          <div class="player-art-bar"></div>
+          <div class="player-art-bar"></div>
+          <div class="player-art-bar"></div>
+          <div class="player-art-bar"></div>
+          <div class="player-art-bar"></div>
+        </div>
+      </div>
+      <div class="player-info">
+        <div class="player-title">Gemini 2.5 Flash — ネイティブ音声理解の新機能</div>
+        <div class="player-subtitle">
+          <span class="badge badge-medium" style="font-size:9px;padding:2px 6px">TOEIC 900</span>
+          <span>2026/05/31</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="player-controls">
+      <div class="player-buttons">
+        <button class="ctrl-btn" title="-15秒" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text-secondary);letter-spacing:-.03em">
+          -15
+        </button>
+        <button class="ctrl-btn-main" id="play-btn" onclick="togglePlay()">
+          <svg id="play-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <button class="ctrl-btn" title="+30秒" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text-secondary);letter-spacing:-.03em">
+          +30
+        </button>
+      </div>
+      <div class="player-progress">
+        <span class="progress-time">2:48</span>
+        <div class="progress-track" onclick="seekProgress(event, this)">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <span class="progress-time end">7:23</span>
+      </div>
+    </div>
+
+    <!-- Extra Controls -->
+    <div class="player-extra">
+      <div class="speed-pill" onclick="cycleSpeed(this)">1.2×</div>
+      <button class="btn btn-icon" title="シャッフル">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+      </button>
+      <button class="btn btn-icon" title="音量">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+    </div>
+  </footer>
+
+</div>
+
+<!-- ── Toast Container ──────────────────────────── -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ── CSS for spin ──────────────────────────────── -->
+<style>
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+
+<script>
+/* ── Theme ───────────────────────────────────────────────────── */
+function toggleTheme() {
+  const current = document.documentElement.dataset.theme;
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem('theme', next);
+}
+
+/* ── View Switching ──────────────────────────────────────────── */
+function switchView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+  const view = document.getElementById('view-' + name);
+  if (view) view.classList.add('active');
+
+  const navItems = document.querySelectorAll('.nav-item');
+  const order = ['feed','podcast','subscriptions','settings'];
+  const idx = order.indexOf(name);
+  if (navItems[idx]) navItems[idx].classList.add('active');
+}
+
+/* ── Star / Dismiss ──────────────────────────────────────────── */
+function toggleStar(btn) {
+  const card = btn.closest('.article-card');
+  btn.classList.toggle('active');
+  card.classList.toggle('starred');
+
+  if (btn.classList.contains('active')) {
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
+    showToast('ポッドキャスト生成を開始しました', 'success');
+  } else {
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
+  }
+}
+
+function dismissCard(btn) {
+  const card = btn.closest('.article-card');
+  card.style.transition = 'all .25s ease';
+  card.style.opacity = '0';
+  card.style.transform = 'translateX(-12px)';
+  card.style.maxHeight = card.offsetHeight + 'px';
+  setTimeout(() => {
+    card.style.maxHeight = '0';
+    card.style.padding = '0';
+    card.style.margin = '0';
+    card.style.border = 'none';
+  }, 250);
+  setTimeout(() => card.remove(), 500);
+}
+
+/* ── Play Controls ───────────────────────────────────────────── */
+let isPlaying = true;
+
+function togglePlay() {
+  isPlaying = !isPlaying;
+  const icon = document.getElementById('play-icon');
+  if (isPlaying) {
+    icon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+  } else {
+    icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+  }
+}
+
+function startPlaying(btn) {
+  showToast('再生を開始しました', 'success');
+  isPlaying = true;
+  document.getElementById('play-icon').innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+}
+
+function seekProgress(e, track) {
+  const rect = track.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  document.getElementById('progress-fill').style.width = (pct * 100) + '%';
+}
+
+/* ── Speed Cycle ─────────────────────────────────────────────── */
+const speeds = ['0.75×', '1.0×', '1.2×', '1.5×', '1.75×', '2.0×', '2.5×'];
+let speedIdx = 2;
+
+function cycleSpeed(el) {
+  speedIdx = (speedIdx + 1) % speeds.length;
+  el.textContent = speeds[speedIdx];
+}
+
+/* ── Toast ───────────────────────────────────────────────────── */
+function showToast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+
+  const icon = type === 'success' ? '✓' : '♪';
+  toast.innerHTML = `
+    <div class="toast-icon">${icon}</div>
+    <span>${msg}</span>
+  `;
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.transition = 'all .25s ease';
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(12px)';
+    setTimeout(() => toast.remove(), 250);
+  }, 3000);
+}
+
+/* ── Subscriptions ───────────────────────────────────────────── */
+function addSubscription() {
+  const name = document.getElementById('sub-name').value.trim();
+  const url = document.getElementById('sub-url').value.trim();
+
+  if (!name || !url) {
+    showToast('ソース名とURLを入力してください', 'info');
+    return;
+  }
+
+  showToast(`「${name}」を追加しました`, 'success');
+  document.getElementById('sub-name').value = '';
+  document.getElementById('sub-url').value = '';
+}
+
+function fillForm(name, url) {
+  document.getElementById('sub-name').value = name;
+  document.getElementById('sub-url').value = url;
+  document.getElementById('sub-name').focus();
+}
+
+/* ── Progress Animation ──────────────────────────────────────── */
+let progPct = 38;
+setInterval(() => {
+  if (!isPlaying) return;
+  progPct = Math.min(100, progPct + 0.05);
+  const fill = document.getElementById('progress-fill');
+  if (fill) fill.style.width = progPct + '%';
+}, 100);
+</script>
+</body>
+</html>
