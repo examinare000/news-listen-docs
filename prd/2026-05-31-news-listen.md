@@ -1,4 +1,4 @@
-# PRD: AudioNews — 海外テックニュース自動収集・Podcast化アプリ
+# PRD: news-listen — 海外テックニュース自動収集・Podcast化アプリ
 
 **バージョン:** 1.4  
 **作成日:** 2026-05-31  

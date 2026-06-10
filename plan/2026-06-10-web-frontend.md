@@ -17,7 +17,7 @@
 | ドキュメント | 用途 |
 |---|---|
 | `docs/design/web-design.html` | 画面・コンポーネント設計の原本（ただし §2 の差分決定が優先） |
-| `docs/prd/2026-05-31-audio-news.md` | 機能要件・優先度の正本 |
+| `docs/prd/2026-05-31-news-listen.md` | 機能要件・優先度の正本 |
 | `spec.md` | バックエンド API 実装仕様（実装済み・90 テストパス） |
 | `backend/api/` | **API 契約の最終的な正**。本書 §4 はここから転記した |
 | `agent-rules/11-testing-strategy.md` | TDD 必須。テスト先行作成 |
