@@ -16,6 +16,7 @@
 
 | ドキュメント | 用途 |
 |---|---|
+| `docs/spec/2026-06-10-web-frontend-spec.md` | **本計画が実装すべき仕様の正本**（正常系・異常系・受け入れ基準）。本計画と齟齬がある場合は仕様書を優先 |
 | `docs/design/web-design.html` | 画面・コンポーネント設計の原本（ただし §2 の差分決定が優先） |
 | `docs/prd/2026-05-31-news-listen.md` | 機能要件・優先度の正本 |
 | `spec.md` | バックエンド API 実装仕様（実装済み・90 テストパス） |
@@ -25,6 +26,27 @@
 | `agent-rules/10-git-strategy.md` | アトミックコミット・コミットメッセージ規約 |
 
 **重要:** `docs/design/web-design.html` には**バックエンドに存在しないエンドポイント**への言及がある。実装時は必ず本書 §2・§4 を正とすること。
+
+### 参照すべき既存実装パターン（ファイル:行）
+
+| パターン | 参照箇所 |
+|---|---|
+| 認証エラーの形（401 `{"detail": "Invalid or missing API key"}`） | `backend/api/main.py:22-30` |
+| Podcast レスポンスの全フィールド（`status` がないことの根拠） | `backend/api/schemas.py:26-34` |
+| sources 追加/削除が**更新後全件**を返す根拠 | `backend/api/routers/settings.py`（add_source / remove_source） |
+| 署名付き URL 生成（1 時間失効の根拠） | `backend/api/routers/podcasts.py`（`storage.generate_audio_url`） |
+| 非 root コンテナ実行の先例 | `backend/Dockerfile.api`（Task 17 で同方針を踏襲） |
+
+### 注意すべきアンチパターン（実装時の禁止事項）
+
+- **存在しない API の実装**: `web-design.html` 由来の `/subscriptions/:id`・`PATCH position`・`GET/PUT /settings`・status ポーリングを書かない（§2 D1〜D4）
+- **localStorage の散在アクセス**: ページ/コンポーネントから直接 `localStorage` を触らない。必ず `useLocalStorage` 経由（§3.2）
+- **モジュールロード時の副作用**: `lib/api.ts` のトップレベルで localStorage や `window` を読まない（SSR 破壊・テスト不能化）
+- **画面状態の Context 二重管理**: アクティブ画面は URL（App Router）が正。Context に画面状態を持たせない
+- **一覧取得時の `audio_url` での再生**: 失効済みの可能性がある。再生直前に `getPodcast(id)` で再取得（§2 D7）
+- **楽観更新**: しない。API 成功後に state 更新（Task 10 の WHY 参照）
+- **禁止フォントの使用**: Inter / Roboto / Arial / system-ui / Space Grotesk（agent-rules/15）
+- **機密のログ出力**: API キー・署名付き URL を `console.log`・コミットに含めない（agent-rules/12）
 
 ---
 
@@ -246,7 +268,7 @@ web/
 
 - [ ] **Red:** `useLocalStorage` のテストを先行作成。観点: 初期値の返却 / set 後の永続化と再読込 / `window` 不在（SSR）で例外を出さない / JSON 不正値が保存されていた場合に初期値へフォールバック
 - [ ] `types/index.ts` に §4 の型を定義（フィールド名は **snake_case のまま**。API レスポンスを変換せず使うため。WHY: 変換層を挟むとバックエンド変更時の追従コストが上がる）
-- [ ] `lib/config.ts` に localStorage キー定数を集約: `api_base_url`, `api_key`, `default_playback_speed`, `podcast_position:{id}`（プレフィックス定数 + キー生成関数）
+- [ ] `lib/config.ts` に localStorage キー定数を集約: `api_base_url`, `api_key`, `default_playback_speed`, `player_volume`, `podcast_position:{id}`（プレフィックス定数 + キー生成関数）
 - [ ] **Green → Refactor → コミット**（テストと実装は別コミット: `テスト: useLocalStorage の仕様を先行定義` → `機能: 型付き localStorage フックと設定キー定数を実装`）
 
 **完了条件:** 型が §4 と 1:1 対応。localStorage アクセスがこのフック経由に一本化される設計が確立。
@@ -264,7 +286,7 @@ web/
   - 非 2xx → `ApiError(status, detail)` を throw（`{"detail": "..."}` 抽出 / JSON でないボディは 'Unknown error'）
   - fetch reject → `ApiError(0, ...)` に正規化
   - 契約検証: `getFeed` の戻り値に `articles`・`date` が存在する
-- [ ] 実装する関数（シグネチャ契約）: `getFeed()` / `starArticle(id)` / `dismissArticle(id)` / `getPodcasts()` / `getPodcast(id)` / `getSources()` / `addSource(name, url)` / `deleteSource(url)`
+- [ ] 実装する関数（シグネチャ契約）: `getFeed()` / `starArticle(id)` / `dismissArticle(id)` / `getPodcasts()` / `getPodcast(id)` / `getSources()` / `addSource(name, url)` / `deleteSource(url)` / `checkHealth()`（Task 8・16 の接続テストで使用。`/health` は認証不要だが他関数と同一経路でプロキシを通す）
   - 設計書にあった `updatePosition` / `getSettings` / `updateSettings` / `getSubscriptions` 系は**作らない**（D2/D3/D1）
   - ベース URL と API キーは引数または生成関数（例: `createApiClient(config)`) で注入し、モジュールロード時に localStorage を読まない（WHY: SSR 安全性とテスト容易性。設計書の「モジュールトップで localStorage 読込」は採用しない）
 - [ ] **Green → Refactor → コミット**
@@ -278,7 +300,7 @@ web/
 **目的:** CORS 問題の解決（§3.1）。
 **ファイル:** `app/api/backend/[...path]/route.ts` + `tests/app/api/proxy.test.ts`
 
-- [ ] **Red:** テスト観点: GET/POST/DELETE の転送（path・クエリ・ボディ・`X-API-Key` 引継ぎ）/ バックエンドの 401・404・409 ステータスとボディの素通し / `X-Backend-Base-Url` 欠落 → 400 / `ftp://` 等の不正スキーム → 400 / クエリ文字列がエンコードを保って転送される
+- [ ] **Red:** テスト観点: GET/POST/DELETE の転送（path・クエリ・ボディ・`X-API-Key` 引継ぎ）/ バックエンドの 401・404・409 ステータスとボディの素通し / `X-Backend-Base-Url` 欠落 → 400 / `ftp://` 等の不正スキーム → 400 / クエリ文字列がエンコードを保って転送される / バックエンドへの fetch が reject（到達不能）→ 502 を返す（仕様書 §6）
 - [ ] Route Handler を実装（Request/Response は Web 標準 API なので jsdom 環境のままテスト可能）
 - [ ] **Green → Refactor → コミット**（`機能: CORS 回避のためのバックエンドプロキシを実装`）
 
@@ -385,8 +407,12 @@ web/
   - play/pause/seek(±秒)/setSpeed の各操作がオーディオ要素へ反映される
   - `timeupdate` ごとに現在位置が更新され、**10 秒間隔のスロットルで** `podcast_position:{id}` へ localStorage 保存される（fake timers）
   - `ended` → isPlaying=false、保存位置を 0 にリセット
+  - `error` イベント（再生不能・URL 失効等）→ isPlaying=false にし、エラーを呼び出し元へ通知できる（UI 側はトースト「音声を再生できません」。仕様書 §9）
+  - `load(url, resumePosition)` で `resumePosition >= duration` の場合は 0 から再生（範囲外の保存値対策。仕様書 §9）
   - 別エピソードの `load` やアンマウント → 旧 Audio の pause と `src` 解放（リーク防止）
+  - `setVolume(v)` → `Audio.volume` へ反映され `player_volume` キーへ保存される / 範囲外値（`-0.1`・`1.5` 等）は **[0, 1] にクランプ**される（境界値）/ `load` 時に保存済み音量が適用され、未保存・不正値は `1.0` へフォールバック（仕様書 §9。order.md タスク 6 の音量要求）
 - [ ] 速度は 8 段階 `[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5]` を定数として export
+- [ ] 音量はフック内のローカル状態とし AppContext には**追加しない**（仕様書 §9 の WHY 参照。reducer への SET_VOLUME 追加は不要）
 - [ ] **Green → Refactor → コミット**
 
 **完了条件:** UI なしでフック単体の振る舞いが全て検証済み。
@@ -398,7 +424,7 @@ web/
 **目的:** 画面下部固定の再生 UI。AppContext の再生状態と useAudioPlayer を結合する。
 **ファイル:** `components/AudioPlayerBar.tsx`, `app/layout.tsx`（組込み）+ テスト
 
-- [ ] **Red:** テスト観点: `currentPodcast` が null なら非表示 / イントロ先頭 50 文字 + DifficultyBadge 表示 / 再生・一時停止トグル / -15 秒・+30 秒ボタン / シークバー（`input[type=range]`、`aria-label` 付き）操作で seek / 速度セレクタが 8 段階で、初期値は AppContext のデフォルト速度 / 時間表示が `lib/format.formatDuration` 形式
+- [ ] **Red:** テスト観点: `currentPodcast` が null なら非表示 / イントロ先頭 50 文字 + DifficultyBadge 表示 / 再生・一時停止トグル / -15 秒・+30 秒ボタン / シークバー（`input[type=range]`、`aria-label` 付き）操作で seek / 音量スライダー（`input[type=range]`・0〜100・`aria-label="音量"`）操作で `setVolume` が呼ばれ、初期値は保存済み音量を反映（仕様書 §9・§10.3。order.md タスク 6 の音量要求）/ 速度セレクタが 8 段階で、初期値は AppContext のデフォルト速度 / 時間表示が `lib/format.formatDuration` 形式
 - [ ] layout.tsx に組み込み、`<main>` の下端 padding をバー高さぶん確保（コンテンツ隠れ防止）
 - [ ] **Green → Refactor → コミット**
 
@@ -472,7 +498,7 @@ web/
 3. 手動シナリオ（実バックエンドに対して dev サーバーで確認）:
    - 初回アクセス → SetupModal → 接続テスト成功 → /feed 表示
    - 記事を Star → トースト表示・★ 点灯 / Dismiss → カード消失
-   - /podcast で再生 → AudioPlayerBar 表示 → 速度変更・±シーク → ページ遷移しても再生継続
+   - /podcast で再生 → AudioPlayerBar 表示 → 速度変更・音量変更・±シーク → ページ遷移しても再生継続
    - リロード後に同エピソードを再生 → 前回位置から再開
    - /subscriptions で追加（重複 409 の文言確認）・削除（確認ダイアログ）
    - 誤った API キーに変更 → 401 トーストが表示される
