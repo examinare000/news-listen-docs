@@ -59,8 +59,23 @@ flowchart LR
 - **再開条件**: ローカル PoC で主要フロー（Feed → Star → Podcast 生成・再生）を確認後、Phase 5 以降を再開。
 - **本番リソースは稼働したまま**: 課金は Cloud Run min-instances=0 のためアイドル時はほぼ発生しない。停止が必要なら Cloud Run サービス/ジョブを削除する。
 
-### ローカル Docker PoC（別途整備）
-- backend API（`backend/Dockerfile.api`）と web を Docker で起動する構成を新規作成する。
-- データ/AI バックエンドの方式（実 GCP 接続 or エミュレータ）は別途決定し、ここに追記する。
+### ローカル Docker PoC（構築済み・稼働中）
+
+- **方式**: 実 GCP 接続（Firestore / Cloud Storage / Gemini）。コンテナは SA 鍵 `infra/keys/news-listen-sa.json`（gitignore 済み・key_id `9a7a1be5…`）で認証。
+- **構成**: ルートの `docker-compose.yml`。`api`（`backend/Dockerfile.api`）/ `web`（`web/Dockerfile.web`、Next.js standalone）/ オンデマンド jobs（`profiles: ["jobs"]`）。
+- **起動**: `docker compose up --build api web` → Web `http://localhost:3000` / API `http://localhost:8080`。
+- **SetupModal 入力**: バックエンド URL = `http://api:8080`（BFF が Web コンテナ内から解決する名前）、API キー = `.env` の `API_KEY`。
+- **ジョブ実行**: `docker compose run --rm rss-fetcher` / `recommendation` / `podcast-generator`。
+
+#### 検証結果（2026-06-11）
+- `GET /health` 200 / web トップ 200 / BFF 経由 `/feed` 200（SA 鍵での Firestore アクセス成功）/ 認証なし 401。
+- `rss-fetcher`: HackerNews から 20 記事取得・保存成功。
+- `recommendation`: 記事保存は成功するが **Gemini 呼び出しが失敗**（フォールバックで全件 score=0.5）。Feed には 20 記事表示。
+
+#### ⚠ 既知のブロッカー
+- **`GEMINI_API_KEY` が無効**（`API_KEY_INVALID` / `generativelanguage.googleapis.com`）。キー形式は正常（`AIzaSy…`・39 文字）だが API に拒否される。
+  - 影響: レコメンドの実スコアリングと **Podcast 生成・TTS が動作しない**（PoC の中核機能）。
+  - 対処: 有効な AI Studio キーへ差し替え（Generative Language API 有効化・キー制限確認）。差し替え後に `recommendation` / `podcast-generator` を再実行する。
+- Feed/Star/Dismiss/Settings の UI フローは Gemini 無しでも触れる状態。
 </content>
 </invoke>
