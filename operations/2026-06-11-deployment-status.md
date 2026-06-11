@@ -77,5 +77,13 @@ flowchart LR
   - 影響: レコメンドの実スコアリングと **Podcast 生成・TTS が動作しない**（PoC の中核機能）。
   - 対処: 有効な AI Studio キーへ差し替え（Generative Language API 有効化・キー制限確認）。差し替え後に `recommendation` / `podcast-generator` を再実行する。
 - Feed/Star/Dismiss/Settings の UI フローは Gemini 無しでも触れる状態。
-</content>
-</invoke>
+
+## 6. main 取り込み方針（このブランチの位置づけ）
+
+`feature/signed-url-iam` の署名付き URL（IAM signBlob）実装は **PR #3 で main 取り込み済み**。
+本ブランチに残る未マージ差分は **ローカル Docker PoC のインフラと本運用文書のみ**であり、ブランチ名と実体が乖離している点に留意する。
+
+- **取り込み対象はインフラのみ**: `docker-compose.yml` / `web/Dockerfile.web` / `web/.dockerignore` / `web/next.config.ts`(standalone) / 本ドキュメント。いずれも **ローカル PoC スコープ**の成果物（本番フロントは Vercel、本番バックエンドは Cloud Run であり、この compose は本番デプロイ手段ではない）。
+- **Gemini ブロッカーはマージ阻害要因ではない**: §5 の `GEMINI_API_KEY` 無効によりレコメンド実スコアリングと Podcast/TTS は未実証だが、これは「PoC インフラの検証」ではなく「中核フローの実証」の宿題。インフラ自体（ビルド・起動・Firestore アクセス・RSS 取得 20 件）は検証済みのため、インフラを main に置くこと自体は妥当と判断する。
+  - **残タスク（マージ後に継続）**: 有効な AI Studio キーへ差し替え → `recommendation` / `podcast-generator` を再実行し、Feed → Star → Podcast 生成・再生の中核フローを実証する。
+- **standalone 出力**: `web/next.config.ts` の `output:'standalone'` は全ビルドに影響する横断的設定。本番 Vercel は当該値を無視するため影響はないが、Docker PoC 専用の意図的設定であることを明記する（コード内コメント参照）。
