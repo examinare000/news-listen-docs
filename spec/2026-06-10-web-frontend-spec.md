@@ -1,9 +1,10 @@
 # Web フロントエンド仕様書（spec）
 
 **作成日:** 2026-06-10
+**改訂日:** 2026-06-12（WebUI リスタイル反映。デザイン正本が `docs/design/web-design.html` から `docs/design/app-ui.html` に変更され、§2 スタイリング・§10 画面仕様の一部・§11 デザイン仕様を実装に合わせて更新。差分決定は `docs/plan/2026-06-12-webui-restyle/00-overview.md` §2 D11〜D28 を参照）
 **スコープ:** `web/` 配下に新規実装する Next.js Web フロントエンド
-**正の優先順位:** `backend/api/`（実コード）> 本仕様書 > `docs/plan/2026-06-10-web-frontend.md` > PRD（`docs/prd/2026-05-31-news-listen.md`）> `docs/design/web-design.html` > order.md
-**対応実装計画:** `docs/plan/2026-06-10-web-frontend.md`（T1〜T17）
+**正の優先順位:** `backend/api/`（実コード）> 本仕様書 > `docs/plan/2026-06-10-web-frontend.md` > PRD（`docs/prd/2026-05-31-news-listen.md`）> `docs/design/app-ui.html` > order.md
+**対応実装計画:** `docs/plan/2026-06-10-web-frontend.md`（T1〜T17）+ `docs/plan/2026-06-12-webui-restyle/`（リスタイル T01〜T11）
 
 > 本仕様の API 契約は `backend/api/main.py`・`backend/api/routers/*.py`・`backend/api/schemas.py` を 2026-06-10 時点で直接読了して転記したものである。`docs/design/web-design.html` にはバックエンドに存在しないエンドポイント（`/subscriptions/:id`、`PATCH /podcasts/:id/position`、`GET/PUT /settings`、Podcast `status`）への言及があるが、**すべて本仕様を正とする**。
 
@@ -23,7 +24,7 @@
 | 項目 | 決定 | 根拠 |
 |---|---|---|
 | フレームワーク | Next.js 15 / App Router / TypeScript | 設計書（`web-design.html:82,84,95`）で確定済み。PRD にフロントエンド技術選定の記載はない（grep 0 件を確認済み）。Pages Router は採用しない |
-| スタイリング | Tailwind CSS v4 + CSS 変数トークン | 設計書（`web-design.html:86,97`） |
+| スタイリング | 純 CSS（`app/globals.css` 一元管理）+ CSS 変数トークン | 2026-06-12 改訂: デザイン正本 `app-ui.html` が純 CSS の完成品であり移植が最短・依存ゼロのため。Tailwind は導入しない |
 | 状態管理 | React Context + useReducer（ライブラリ不使用） | 規模に対して十分。§7 参照 |
 | テスト | Vitest + React Testing Library + jsdom | TDD 必須（agent-rules/11） |
 | 通信経路 | ブラウザ → Next.js Route Handler（BFF プロキシ）→ バックエンド | バックエンドに CORS ミドルウェアが**ない**（`backend/api/` 全域に grep ヒット 0 件を確認済み）ため直接 fetch は不可 |
@@ -152,7 +153,7 @@ class ApiError extends Error { status: number; detail: string }
 
 ## 10. 画面仕様
 
-ルーティング: `/`（ゲート）、`/feed`、`/podcast`、`/podcast/[id]`、`/subscriptions`、`/settings` の 4 画面 + 詳細 + エントリー。order.md の「3 画面」は誤り（Subscriptions を含む）。NavigationBar は 4 リンク（Feed / Podcast / Subscriptions / Settings）で現在パスに `aria-current="page"`。モバイル（375px）では下部タブ化。
+ルーティング: `/`（ゲート）、`/feed`、`/podcast`、`/podcast/[id]`、`/subscriptions`、`/settings` の 4 画面 + 詳細 + エントリー。order.md の「3 画面」は誤り（Subscriptions を含む）。NavigationBar は左固定サイドバー（`aside.sidebar`）で、ロゴ + アイコン付き 4 リンク（フィード / ポッドキャスト / 購読管理 / 設定）。現在パスに `aria-current="page"`。幅 900px 以下ではアイコンのみに縮小（CSS メディアクエリ）。サイドバーフッターに ThemeToggle（§10.6）を配置。各ページは sticky な `.page-header`（タイトル + サブタイトル + アクション）+ `.content-area` の 2 層構造（2026-06-12 改訂）。
 
 ### 10.1 `/`（エントリーゲート + SetupModal）
 
@@ -176,7 +177,9 @@ SetupModal バリデーション（クライアント側・インラインエラ
 | 空（`articles: []`） | 「まだ記事がありません。バッチは毎日 06:00 に実行されます。」 |
 | 取得エラー | エラーメッセージ + 再試行ボタン |
 
-ArticleCard（制御コンポーネント。props: `{ article, onStar, onDismiss, busy }`。API 呼び出しはページの責務）:
+タブフィルタ（2026-06-12 追加）: 「すべて」「★ スター済み」の 2 タブ（件数表示付き・クライアント側フィルタ。`aria-pressed` トグルボタンで実装 — tabs ロールは tabpanel 関連付けが必要になるため不採用）。「未読」タブは既読管理 API がないため実装しない（D15）。スター済みタブで 0 件のときは「スター済みの記事はありません」。
+
+ArticleCard（制御コンポーネント。props: `{ article, onStar, onDismiss, busy, starred }`。API 呼び出しはページの責務）:
 - タイトル＝外部リンク（`target="_blank"` + `rel="noopener noreferrer"`）、ソース、公開日、スコアバー（width がスコア比例、`aria-valuenow`）
 - 操作中（busy）はボタン disabled（二重送信防止）
 
@@ -201,7 +204,7 @@ ArticleCard（制御コンポーネント。props: `{ article, onStar, onDismiss
 | 再生ボタン | `getPodcast(id)` を呼び直し → AppContext へ `SET_PODCAST` + 再生開始 + `podcast_position:{id}` から復元位置を渡す |
 | リフレッシュボタン | 再取得（status ポーリングの代替。ポーリング・StatusBadge は**実装しない**） |
 
-PodcastCard: イントロ先頭 80 文字・DifficultyBadge・`formatDuration`・生成日・保存済み位置があれば「続きから MM:SS」。カード本体クリックで `/podcast/:id` へ。
+PodcastCard: イントロ全文を CSS 2 行クランプで表示（2026-06-12 改訂: 旧 80 文字 slice を撤去）・DifficultyBadge・`type: 'digest'` のとき DIGEST タグ・`formatDuration`・生成日・保存済み位置があれば「続きから MM:SS」。カード本体クリックで `/podcast/:id` へ（再生ボタンとは独立）。`playing?: boolean` prop（省略時 false）が真のとき amber 枠 + 波形 + 「再生中」表示（D24）。再生中判定（`currentPodcast?.id === podcast.id`）はページの責務で、カードは Context 非依存。
 
 詳細（`/podcast/[id]`）:
 | 状態 | 挙動 |
@@ -232,6 +235,8 @@ AddSubscriptionForm の異常系:
 
 削除: 削除ボタン → ConfirmDialog（Escape で閉じる）→ 確認後 `deleteSource(url)`。404 → トースト「対象が見つかりません」+ 一覧再取得。enabled トグル・行 ID は**実装しない**（API に存在しない）。
 
+おすすめのソース（2026-06-12 追加・D23）: 追加フォーム下部に The Verge / dev.to の 2 件を提示。「追加」クリックで**フォームに name/url を自動入力し name 欄へフォーカス**する（即時 API 送信はしない — ユーザーが確認してから登録する余地を残す）。レイアウトは 2 カラム（ソース一覧 + sticky 追加カード）で「{N} ソース購読中」の件数を表示。
+
 ### 10.5 `/settings`
 
 - 現在の baseUrl 表示。apiKey は**値を出さず**「設定済み」表示 + 再入力欄
@@ -248,14 +253,20 @@ AddSubscriptionForm の異常系:
 | DifficultyBadge | 6 難易度にラベル（例: `toeic_900` → 「TOEIC 900」）と色。**未知の文字列でも例外を出さず生値を表示** |
 | SkeletonCard | ローディング表示 |
 | ConfirmDialog | 開閉・確認/キャンセルコールバック・Escape で閉じる |
+| ThemeToggle | （2026-06-12 追加）サイドバーフッター常駐。`role="switch"` + `aria-checked`（light=true）。クリックで `html[data-theme]` を dark⇄light トグルし localStorage `theme` キーへ**生文字列**保存（`useLocalStorage` は JSON 化するため不使用 — layout.tsx の FOUC 防止インラインスクリプトが生値を読むため）。テーマは React state に持たず DOM が単一の真実 |
 | `lib/format.ts` | `formatDuration(300)` → `"5:00"`。0 秒・3600 秒以上も正しく整形。`formatDate(ISO)` → 「6/10 09:00」。**不正 ISO 文字列で例外を出さない** |
 
-## 11. デザイン仕様（agent-rules/15 準拠）
+## 11. デザイン仕様（agent-rules/15 準拠・2026-06-12 全面改訂）
 
-- トーン: ダーク・エディトリアル。CSS 変数トークン（web-design.html の値をそのまま採用）:
-  `--bg: #0f1117` / `--surface: #1a1d27` / `--border: #2a2d3e` / `--text: #e2e4ed` / `--muted: #8b8fa8` / `--accent: #7c6af7` / `--accent2: #4fc3f7` / `--green: #4caf82` / `--orange: #f0a050` / `--red: #e05c5c`
-- フォント（**禁止: Inter / Roboto / Arial / system-ui / Space Grotesk** — agent-rules/15-frontend-design.md:24,42 で確認済み）: 見出し欧文 = Bricolage Grotesque、和文本文 = Zen Kaku Gothic New、数値・メタ = IBM Plex Mono（すべて next/font/google）
-- モーション: ロード時スタッガードリビール（CSS のみ）+ Star/Dismiss 時のカード除去トランジション。常時動くアニメーション禁止
+デザイン正本は `docs/design/app-ui.html`。CSS は同ファイルの `<style>` 全量を `web/app/globals.css` に忠実移植したものが実装の正（許容差分はフォント変数化・`.app-shell` の `grid-template-rows: 1fr auto` 化・`.player-bar` の height 追加・T11 統合での末尾追加のみ）。
+
+- トーン: ダーク・エディトリアル + amber アクセント。主要トークン（ダーク）:
+  `--bg-base: #0B0A0E` / `--bg-raised: #141219` / `--bg-surface: #1D1B24` / `--text-primary: #F0EDE8` / `--amber: #F0A030` / `--teal: #38BEC9` / `--green: #56C68A` / `--red: #E05C5C` / `--purple: #9B7CF8`
+- テーマ: `html[data-theme="dark|light"]` で切替（ライトは `--bg-base: #F5F2EC` 等を上書き）。初期値は localStorage `theme` → なければ `prefers-color-scheme`。FOUC 防止のため `layout.tsx` の `<head>` 内同期インラインスクリプトで適用し、`<html suppressHydrationWarning>` を付与
+- フォント（**禁止: Inter / Roboto / Arial / system-ui / Space Grotesk**）: 見出し = Playfair Display（`--font-display`）、本文 = DM Sans（`--font-body`）、数値・メタ = DM Mono（`--font-mono`）。すべて next/font/google でビルド時セルフホスティング（コンテナ実行時の外部フォントリクエストを排除）
+- レイアウト: `.app-shell` グリッド（サイドバー 220px + メイン / 下段プレイヤーバー）。`body { overflow: hidden }` でスクロールは `.main-content` が担う
+- モーション: カードのスタッガードリビール（`card-enter` + nth-child delay）、再生中カードのパルス枠、プレイヤーの波形アニメーション（一時停止で停止）。テーマ切替は背景・文字色等の 0.25s トランジション
+- 実装規律: スタイルは globals.css 一元管理（コンポーネントはクラス名付与のみ）。デザイン上 `div` の操作要素も `<button>`/`<input type=range>`/`<select>` を維持し a11y を劣化させない（速度ピル = `<select>` を `.speed-pill` 装飾、シークバー = range 入力等）
 
 ## 12. テスト戦略（TDD 必須）
 
