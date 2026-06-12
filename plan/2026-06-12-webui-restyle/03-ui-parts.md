@@ -47,9 +47,9 @@
 
 ## 完了条件
 
-- [ ] `npm run test` 全パス
-- [ ] `npm run dev` で SetupModal（localStorage クリアで再現）がデザインのモーダル外観で表示される
-- [ ] Toast がカード型 + アイコン付きで右上に表示される
+- [x] `npm run test` 全パス
+- [x] `npm run dev` で SetupModal（localStorage クリアで再現）がデザインのモーダル外観で表示される
+- [x] Toast がカード型 + アイコン付きで右上に表示される
 
 ## 禁止事項
 

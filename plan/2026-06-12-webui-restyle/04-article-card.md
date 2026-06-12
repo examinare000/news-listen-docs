@@ -32,8 +32,8 @@
 
 ## 完了条件
 
-- [ ] `npm run test` 全パス
-- [ ] `npm run dev` の /feed でカードがデザイン外観（ホバーで左帯 amber、スター点灯で amber 塗り）になる
+- [x] `npm run test` 全パス
+- [x] `npm run dev` の /feed でカードがデザイン外観（ホバーで左帯 amber、スター点灯で amber 塗り）になる
 
 ## 禁止事項
 

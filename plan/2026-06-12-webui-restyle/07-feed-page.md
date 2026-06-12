@@ -41,8 +41,8 @@
 
 ## 完了条件
 
-- [ ] `npm run test` 全パス
-- [ ] `npm run dev`（実 API）でヘッダー・タブ・カードリストがデザイン外観で表示され、Star/Dismiss/更新が従来どおり動く
+- [x] `npm run test` 全パス
+- [x] `npm run dev`（実 API）でヘッダー・タブ・カードリストがデザイン外観で表示され、Star/Dismiss/更新が従来どおり動く
 
 ## 禁止事項
 

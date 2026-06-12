@@ -42,7 +42,7 @@ docker compose up --build api web   # リポジトリルートで実行
 ```
 
 - [x] ビルド成功（`docker compose build web` — Image news-listen-web Built。up は .env / SA 鍵依存のため未実施）
-- [ ] http://localhost:3000 で新デザイン表示・SetupModal（バックエンド URL `http://api:8080` ではなく**ブラウザから到達可能な URL** — BFF プロキシはサーバー側転送のため `http://api:8080` を入力する。docker-compose.yml 冒頭コメントの手順に従う）※人間による確認推奨
+- [x] http://localhost:3000 で新デザイン表示（2026-06-12 ユーザー確認済み。当初「スタイル未適用」報告があったが、原因は実装前から稼働していた旧イメージのコンテナ。`docker compose up -d --build web` で再作成して解消 — **build のみではコンテナは入れ替わらない**点に注意）。SetupModal のバックエンド URL は `http://api:8080` を入力する（BFF プロキシがサーバー側転送するため。docker-compose.yml 冒頭コメント参照）
 - [ ] コンテナ上で手順 3 の主要シナリオ（フィード表示・再生・テーマ切替）を再確認 ※人間による確認推奨
 
 ### 5. 仕上げ

@@ -189,3 +189,31 @@ taktステップ: execute_tdd
 ## 6. Phase 2 送り（本計画では着手禁止）
 
 未読管理とフィードタブ「未読」/ 一括スター / Podcast 生成ステータス表示 / 相対日時表記 / キャッシュ管理 UI / 再生キュー（シャッフル）/ E2E テスト。これらに触れたくなった場合は実装せず、計画の更新を提案すること。
+
+（2026-06-12 実績追加）シークバーの再生済み区間フィル（Firefox `::-moz-range-progress` 等）/ `.feed-tabs` 背景色のダーク固定リテラル解消（デザイン正本由来）/ テストの `createApiClient.mockReturnValue` 型エラー 63 件の `vi.mocked` 化（既存負債）/ ESLint 設定の導入（`npm run lint` が現状実行不能）。
+
+---
+
+## 7. 実行実績（2026-06-12 完了）
+
+全 Wave 完了。PR: https://github.com/examinare000/news-listen/pull/7（ブランチ `feature/webui-restyle`、32 コミット、48 ファイル +4,517/−433）
+
+| Wave | 実績 |
+|---|---|
+| Wave 1（T01） | coder 1 体。globals.css 全量移植は app-ui.html との diff 照合で許容差分 3 種のみを確認。248 tests |
+| Wave 2（T02〜T10） | coder 8 体並列起動 + T05 完了後に T08 起動（`playing` prop の型依存のため）。ファイル占有によるコンフリクトはゼロ。311 tests |
+| 品質ゲート | reviewer **PASS** / ai-antipattern-reviewer **CLEAR**（BLOCKER/MAJOR なし。Silent Code Drop なしを main と突き合わせ確認） |
+| Wave 3（T11） | 申し送り 7 件解消（globals.css 末尾追加）+ MINOR 指摘 3 件修正。最終レビュー PASS。**315 tests** / build / `docker compose build web` 成功 |
+
+### 実行中に行った計画からの逸脱・追加決定
+
+- **D29**: feed タブは `role="tab"` でなく `aria-pressed` トグルボタンで実装（WAI-ARIA tabs パターンは tabpanel + roving tabindex まで要求し 2 択フィルタには過剰） — 07 の指示を T11 で改訂
+- **D30**: ThemeToggle に `role="switch"` + `aria-checked` を付与（支援技術へのテーマ状態伝達）。aria-checked 用ローカル state はトグル自身に閉じ、§3.3「テーマをグローバル state に持たない」と両立
+- **D31**: `tsconfig.json` / `next-env.d.ts` は Next.js build の自動生成版を正式コミット（build のたびに再発する差分を解消）
+- **D32**: 詳細・設定ページのコンテンツ幅は `.content-narrow`（680px）に統一（デザイン正本の settings は 600px だが、インラインスタイル排除と幅ユーティリティ一本化を優先）
+
+### 運用メモ
+
+- coder の `npx next lint` 実行は禁止（tsconfig.json を自動改変するため。T05 で発生・復旧済み）
+- 同一ワーキングツリーでの並列実行時は、各 coder のテスト実行を担当テストファイルに限定し、全件検証は Wave 終端でオーケストレーターが実施する
+- ローカル確認は `docker compose up -d --build web` まで実行すること（build のみでは稼働中コンテナが古いまま）
