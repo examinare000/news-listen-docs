@@ -1,10 +1,10 @@
 # Web フロントエンド仕様書（spec）
 
 **作成日:** 2026-06-10
-**改訂日:** 2026-06-12（WebUI リスタイル反映。デザイン正本が `docs/design/web-design.html` から `docs/design/app-ui.html` に変更され、§2 スタイリング・§10 画面仕様の一部・§11 デザイン仕様を実装に合わせて更新。差分決定は `docs/plan/2026-06-12-webui-restyle/00-overview.md` §2 D11〜D28 を参照）
-**スコープ:** `web/` 配下に新規実装する Next.js Web フロントエンド
-**正の優先順位:** `backend/api/`（実コード）> 本仕様書 > `docs/plan/2026-06-10-web-frontend.md` > PRD（`docs/prd/2026-05-31-news-listen.md`）> `docs/design/app-ui.html` > order.md
-**対応実装計画:** `docs/plan/2026-06-10-web-frontend.md`（T1〜T17）+ `docs/plan/2026-06-12-webui-restyle/`（リスタイル T01〜T11）
+**改訂日:** 2026-06-12（WebUI リスタイル反映。デザイン正本が `docs/design/web-design.html` から `docs/design/app-ui.html` に変更され、§2 スタイリング・§10 画面仕様の一部・§11 デザイン仕様を実装に合わせて更新。経緯と決定は ADR-001〜004（`docs/adr/`）を参照）
+**スコープ:** `web/` 配下の Next.js Web フロントエンド
+**正の優先順位:** `backend/api/`（実コード）> 本仕様書 > ADR（`docs/adr/`）> PRD（`docs/prd/2026-05-31-news-listen.md`）> `docs/design/app-ui.html` > order.md
+**関連:** 実装計画書は完了に伴い削除済み（`docs/plan/` の運用方針による。経緯は git 履歴の `docs/plan/2026-06-10-web-frontend.md`・`docs/plan/2026-06-12-webui-restyle/` を参照）
 
 > 本仕様の API 契約は `backend/api/main.py`・`backend/api/routers/*.py`・`backend/api/schemas.py` を 2026-06-10 時点で直接読了して転記したものである。`docs/design/web-design.html` にはバックエンドに存在しないエンドポイント（`/subscriptions/:id`、`PATCH /podcasts/:id/position`、`GET/PUT /settings`、Podcast `status`）への言及があるが、**すべて本仕様を正とする**。
 
@@ -177,7 +177,7 @@ SetupModal バリデーション（クライアント側・インラインエラ
 | 空（`articles: []`） | 「まだ記事がありません。バッチは毎日 06:00 に実行されます。」 |
 | 取得エラー | エラーメッセージ + 再試行ボタン |
 
-タブフィルタ（2026-06-12 追加）: 「すべて」「★ スター済み」の 2 タブ（件数表示付き・クライアント側フィルタ。`aria-pressed` トグルボタンで実装 — tabs ロールは tabpanel 関連付けが必要になるため不採用）。「未読」タブは既読管理 API がないため実装しない（D15）。スター済みタブで 0 件のときは「スター済みの記事はありません」。
+タブフィルタ（2026-06-12 追加）: 「すべて」「★ スター済み」の 2 タブ（件数表示付き・クライアント側フィルタ。`aria-pressed` トグルボタンで実装 — tabs ロールは tabpanel 関連付けが必要になるため不採用）。「未読」タブは既読管理 API がないため実装しない（ADR-002）。スター済みタブで 0 件のときは「スター済みの記事はありません」。
 
 ArticleCard（制御コンポーネント。props: `{ article, onStar, onDismiss, busy, starred }`。API 呼び出しはページの責務）:
 - タイトル＝外部リンク（`target="_blank"` + `rel="noopener noreferrer"`）、ソース、公開日、スコアバー（width がスコア比例、`aria-valuenow`）
@@ -204,7 +204,7 @@ ArticleCard（制御コンポーネント。props: `{ article, onStar, onDismiss
 | 再生ボタン | `getPodcast(id)` を呼び直し → AppContext へ `SET_PODCAST` + 再生開始 + `podcast_position:{id}` から復元位置を渡す |
 | リフレッシュボタン | 再取得（status ポーリングの代替。ポーリング・StatusBadge は**実装しない**） |
 
-PodcastCard: イントロ全文を CSS 2 行クランプで表示（2026-06-12 改訂: 旧 80 文字 slice を撤去）・DifficultyBadge・`type: 'digest'` のとき DIGEST タグ・`formatDuration`・生成日・保存済み位置があれば「続きから MM:SS」。カード本体クリックで `/podcast/:id` へ（再生ボタンとは独立）。`playing?: boolean` prop（省略時 false）が真のとき amber 枠 + 波形 + 「再生中」表示（D24）。再生中判定（`currentPodcast?.id === podcast.id`）はページの責務で、カードは Context 非依存。
+PodcastCard: イントロ全文を CSS 2 行クランプで表示（2026-06-12 改訂: 旧 80 文字 slice を撤去）・DifficultyBadge・`type: 'digest'` のとき DIGEST タグ・`formatDuration`・生成日・保存済み位置があれば「続きから MM:SS」。カード本体クリックで `/podcast/:id` へ（再生ボタンとは独立）。`playing?: boolean` prop（省略時 false）が真のとき amber 枠 + 波形 + 「再生中」表示。再生中判定（`currentPodcast?.id === podcast.id`）はページの責務で、カードは Context 非依存。
 
 詳細（`/podcast/[id]`）:
 | 状態 | 挙動 |
@@ -235,7 +235,7 @@ AddSubscriptionForm の異常系:
 
 削除: 削除ボタン → ConfirmDialog（Escape で閉じる）→ 確認後 `deleteSource(url)`。404 → トースト「対象が見つかりません」+ 一覧再取得。enabled トグル・行 ID は**実装しない**（API に存在しない）。
 
-おすすめのソース（2026-06-12 追加・D23）: 追加フォーム下部に The Verge / dev.to の 2 件を提示。「追加」クリックで**フォームに name/url を自動入力し name 欄へフォーカス**する（即時 API 送信はしない — ユーザーが確認してから登録する余地を残す）。レイアウトは 2 カラム（ソース一覧 + sticky 追加カード）で「{N} ソース購読中」の件数を表示。
+おすすめのソース（2026-06-12 追加）: 追加フォーム下部に The Verge / dev.to の 2 件を提示。「追加」クリックで**フォームに name/url を自動入力し name 欄へフォーカス**する（即時 API 送信はしない — ユーザーが確認してから登録する余地を残す）。レイアウトは 2 カラム（ソース一覧 + sticky 追加カード）で「{N} ソース購読中」の件数を表示。
 
 ### 10.5 `/settings`
 
