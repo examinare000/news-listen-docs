@@ -357,6 +357,22 @@ Gemini にはセリフ単位の構造化 JSON を出力させ、そのまま TTS
 - ストレージ管理（キャッシュ容量確認・削除）
 - Firebase Auth によるマルチユーザー管理の本格化
 
+#### Web フロントエンド残課題（2026-06-12 追記 — WebUI リスタイル完了時の棚卸し）
+
+Web 版（PR #7 で新デザイン適用済み）は実装済み API 契約を正としており（ADR-002）、以下は**バックエンド API の拡張が前提**の機能:
+
+- Podcast 生成ステータス表示・ポーリング（`PodcastResponse` への `status` / `error_message` 追加が前提）
+- 再生位置のサーバー同期・端末間共有（`PATCH /podcasts/:id/position` 新設が前提。現状は localStorage のみ）
+- デフォルト難易度のユーザー設定（`GET/PUT /settings` 新設 + podcast-generator の難易度参照変更が前提）
+- フィードの未読管理・「未読」タブ（既読管理 API が前提）
+- BFF プロキシの撤去（バックエンドへの CORS 追加が前提。ADR-001）
+
+Web 単独で追加可能なもの:
+
+- 記事の一括スター / 相対日時表記（「3時間前」）/ E2E テスト（Playwright）/ Web Push 通知
+
+技術的負債（ESLint 導入・テスト型エラー等）は `docs/tech/web-frontend-tech-debt.md` を参照。
+
 ### 将来検討（P2）
 
 - Apple Watch 対応
