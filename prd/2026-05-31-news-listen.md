@@ -371,7 +371,7 @@ Web 単独で追加可能なもの:
 
 - 記事の一括スター / 相対日時表記（「3時間前」）/ E2E テスト（Playwright）/ Web Push 通知
 
-技術的負債（ESLint 導入・テスト型エラー等）は `docs/tech/web-frontend-tech-debt.md` を参照。
+技術的負債（ESLint 導入等。テスト型エラー・シークバーフィルは 2026-06-12 解消済み）は `docs/tech/web-frontend-tech-debt.md` を参照。
 
 ### 将来検討（P2）
 
