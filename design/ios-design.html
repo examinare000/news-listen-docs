@@ -82,6 +82,18 @@
     <div class="badge">フェーズ <span>Phase 2</span></div>
   </div>
 
+  <div class="warn">
+    <strong>是正済み（2026-06-14）:</strong> 本ビジュアル案には実バックエンドとの契約乖離があったため、正本は
+    <a href="../plan/2026-06-14-ios-app-requirements.md">要件</a>・
+    <a href="../design/2026-06-14-ios-app-design.md">設計（Markdown）</a>・
+    ADR <a href="../adr/007-ios-direct-backend-access.md">007</a>〜<a href="../adr/011-podcast-generation-status.md">011</a> とする。
+    主な是正点: ①再生位置・既定設定（難易度/速度）はサーバー API ではなく端末ローカル（UserDefaults）保存（<code>PATCH /podcasts/:id/position</code>・<code>PUT /settings</code> は<strong>存在しない</strong>）。
+    ②RSS は <code>/settings/sources</code>（URL キー・ID なし）で操作（<code>/subscriptions/:id</code> は誤り）。
+    ③<code>audio_url</code> は 1 時間失効の署名付き URL のため再生直前に再取得。
+    ④<code>status</code> は現行 API レスポンスに未含有のため生成中ポーリングは Phase 2 課題。
+    本 HTML 内の該当記述は以下で是正済み。
+  </div>
+
   <!-- ======= OVERVIEW ======= -->
   <h2 id="overview">1. 概要・技術スタック</h2>
 
@@ -174,7 +186,7 @@
       <tr><th>要素</th><th>詳細</th></tr>
       <tr><td>エピソードリスト</td><td>タイトル・難易度バッジ・再生時間・ステータス</td></tr>
       <tr><td>ステータス表示</td><td>生成中: ProgressView スピナー、失敗: exclamationmark アイコン、完了: 再生アイコン</td></tr>
-      <tr><td>ポーリング</td><td>processing 状態のエピソードを 5 秒ごとに GET /podcasts/:id で状態確認</td></tr>
+      <tr><td>生成状態表示</td><td>Phase 1 は対象外（API レスポンスに <code>status</code> 未含有。<a href="../adr/011-podcast-generation-status.md">ADR-011</a>）。pull-to-refresh で完成エピソードを表示</td></tr>
       <tr><td>AudioPlayerView</td><td>タップで展開。再生/一時停止・シークバー・速度セグメント・日本語イントロ表示</td></tr>
       <tr><td>バックグラウンド再生</td><td>AVAudioSession + Background Modes 設定（音楽）</td></tr>
     </table>
@@ -186,7 +198,7 @@
     <table>
       <tr><th>要素</th><th>詳細</th></tr>
       <tr><td>ソース一覧</td><td>List でソース名と URL を表示。デフォルト2件（HackerNews / Zenn）</td></tr>
-      <tr><td>スワイプ削除</td><td><code>.onDelete</code> → 確認アクションシート → DELETE /subscriptions/:id</td></tr>
+      <tr><td>スワイプ削除</td><td><code>.onDelete</code> → 確認アクションシート → DELETE /settings/sources?url=（URL キー）</td></tr>
       <tr><td>追加ボタン</td><td>ツールバーの <code>+</code> ボタン → AddSubscriptionSheet をシート表示</td></tr>
       <tr><td>AddSubscriptionSheet</td><td>「ソース名」「RSS URL」TextField + 追加ボタン（インラインバリデーション）</td></tr>
       <tr><td>バリデーション</td><td>URL 形式チェック（クライアント）+ エラーレスポンスをインライン表示</td></tr>
@@ -196,7 +208,7 @@
     <ol>
       <li>「ソース名」と「RSS URL」を TextField に入力</li>
       <li>追加ボタンタップ（名前・URL が空の場合は無効）</li>
-      <li>POST /subscriptions → 成功時: シートを閉じて一覧を更新</li>
+      <li>POST /settings/sources（body <code>{name, url}</code>） → 成功時: シートを閉じて一覧を更新</li>
       <li>失敗時: シートを閉じず、TextField の下にエラーメッセージを表示</li>
     </ol>
   </div>
@@ -205,8 +217,8 @@
     <h4>SettingsView <span class="screen-path">Tab 4 — 設定</span></h4>
     <table>
       <tr><th>設定項目</th><th>UI</th><th>保存先</th></tr>
-      <tr><td>デフォルト難易度</td><td>Picker（6 段階）</td><td>UserDefaults + PUT /settings</td></tr>
-      <tr><td>デフォルト再生速度</td><td>Slider（0.5〜2.5）</td><td>UserDefaults + PUT /settings</td></tr>
+      <tr><td>デフォルト難易度</td><td>Picker（6 段階）</td><td>UserDefaults（端末ローカルのみ。設定 API は無し）</td></tr>
+      <tr><td>デフォルト再生速度</td><td>Slider（0.5〜2.5）</td><td>UserDefaults（端末ローカルのみ。設定 API は無し）</td></tr>
       <tr><td>API エンドポイント URL</td><td>TextField</td><td>UserDefaults</td></tr>
       <tr><td>API キー</td><td>SecureField</td><td>UserDefaults（Keychain 移行は P2）</td></tr>
     </table>
@@ -278,85 +290,47 @@
   <table>
     <tr><th>ViewModel</th><th>責務</th></tr>
     <tr><td>FeedViewModel</td><td>記事一覧の取得・Star/Dismiss 操作・リスト更新</td></tr>
-    <tr><td>PodcastViewModel</td><td>エピソード一覧の取得・生成中エピソードのポーリング・再生トリガー</td></tr>
+    <tr><td>PodcastViewModel</td><td>エピソード一覧/詳細の取得・再生トリガー（再生直前に再取得）。生成状態ポーリングは Phase 2</td></tr>
     <tr><td>SubscriptionsViewModel</td><td>RSS ソース一覧の取得・追加（バリデーション含む）・削除</td></tr>
     <tr><td>SettingsViewModel</td><td>設定の読み込み・更新・AppState との同期</td></tr>
-    <tr><td>AudioPlayerState</td><td>AVPlayer のラッパー・再生位置のポーリング保存・速度制御</td></tr>
+    <tr><td>AudioPlayerState</td><td>AVPlayer のラッパー・再生位置の定期ローカル保存・速度制御</td></tr>
   </table>
 
   <!-- ======= APPSTATE ======= -->
   <h2 id="appstate">5. AppState 設計</h2>
 
-  <pre>// AppState.swift
-@Observable
-final class AppState {
-
-  // MARK: - API 設定（UserDefaults 永続化）
-  @AppStorage("api_base_url")   var apiBaseURL: String = ""
-  @AppStorage("api_key")        var apiKey: String = ""
-  @AppStorage("default_difficulty")    var defaultDifficulty: String = "toeic_900"
-  @AppStorage("default_playback_speed") var defaultPlaybackSpeed: Double = 1.0
-
-  // MARK: - 音声再生状態（メモリのみ）
-  var currentPodcast: Podcast?
-  var isPlaying: Bool = false
-  var currentTimeSeconds: Double = 0
-  var durationSeconds: Double = 0
-  var playbackSpeed: Float = 1.0
-
-  // MARK: - 派生プロパティ
-  var isConfigured: Bool { !apiBaseURL.isEmpty && !apiKey.isEmpty }
-
-  var apiClient: APIClient? {
-    guard isConfigured, let url = URL(string: apiBaseURL) else { return nil }
-    return APIClient(baseURL: url, apiKey: apiKey)
-  }
-}</pre>
+  <p><code>AppState</code> はアプリ全体のグローバル状態（<code>@Observable</code>）を保持する。API 接続設定および再生既定値は <code>@AppStorage</code> 経由で UserDefaults に永続化し、音声再生中の一時状態はメモリのみで保持する。派生プロパティは保持値から計算で導出する。</p>
+  <table>
+    <tr><th>プロパティ</th><th>保存先</th><th>説明</th></tr>
+    <tr><td>apiBaseURL</td><td>UserDefaults 永続化（@AppStorage）</td><td>API のベース URL（既定: 空）</td></tr>
+    <tr><td>apiKey</td><td>UserDefaults 永続化（@AppStorage）</td><td>API キー（既定: 空）</td></tr>
+    <tr><td>defaultDifficulty</td><td>UserDefaults 永続化（@AppStorage）</td><td>既定の難易度（既定: toeic_900）。端末ローカルのみで管理</td></tr>
+    <tr><td>defaultPlaybackSpeed</td><td>UserDefaults 永続化（@AppStorage）</td><td>既定の再生速度（既定: 1.0）。端末ローカルのみで管理</td></tr>
+    <tr><td>currentPodcast</td><td>メモリのみ</td><td>現在再生中のエピソード</td></tr>
+    <tr><td>isPlaying</td><td>メモリのみ</td><td>再生中かどうか</td></tr>
+    <tr><td>currentTimeSeconds</td><td>メモリのみ</td><td>現在の再生位置（秒）</td></tr>
+    <tr><td>durationSeconds</td><td>メモリのみ</td><td>総再生時間（秒）</td></tr>
+    <tr><td>playbackSpeed</td><td>メモリのみ</td><td>現在の再生速度</td></tr>
+    <tr><td>isConfigured（派生）</td><td>計算で導出</td><td>apiBaseURL と apiKey の両方が設定済みなら true</td></tr>
+    <tr><td>apiClient（派生）</td><td>計算で導出</td><td>設定済みかつ URL が有効な場合に APIClient を生成して返す</td></tr>
+  </table>
 
   <!-- ======= API CLIENT ======= -->
   <h2 id="api-client">6. API クライアント設計</h2>
 
-  <pre>// Networking/APIClient.swift
-protocol URLSessionProtocol {
-  func data(for request: URLRequest) async throws -> (Data, URLResponse)
-}
-extension URLSession: URLSessionProtocol {}
-
-enum APIError: LocalizedError {
-  case invalidURL
-  case httpError(statusCode: Int, detail: String)
-  case decodingError(Error)
-}
-
-@MainActor
-final class APIClient {
-  private let baseURL: URL
-  private let apiKey: String
-  private let session: URLSessionProtocol
-
-  init(baseURL: URL, apiKey: String, session: URLSessionProtocol = URLSession.shared) {
-    self.baseURL = baseURL; self.apiKey = apiKey; self.session = session
-  }
-
-  // Feed
-  func fetchFeed() async throws -> FeedResponse
-  func starArticle(id: String) async throws -> StarResponse
-  func dismissArticle(id: String) async throws
-
-  // Podcasts
-  func fetchPodcasts() async throws -> PodcastListResponse
-  func fetchPodcast(id: String) async throws -> Podcast
-  func updatePosition(podcastId: String, seconds: Double) async throws
-
-  // Subscriptions（RSS 管理）
-  func fetchSubscriptions() async throws -> SubscriptionsResponse
-  func addSubscription(name: String, url: String) async throws -> SubscriptionsResponse
-  func deleteSubscription(id: String) async throws
-
-  // Settings
-  func fetchSettings() async throws -> Settings
-  func updateSettings(_ settings: Settings) async throws -> Settings
-}</pre>
+  <p><code>APIClient</code> は <code>@MainActor</code> で動作し、ベース URL・API キー・セッションを保持する。テスト可能性のため <code>URLSessionProtocol</code> を注入し、本番では <code>URLSession</code> を、テストではモックを差し替える。エラーは <code>APIError</code> 型で表現し、<code>invalidURL</code>（URL 不正）・<code>httpError(statusCode, detail)</code>（HTTP エラー）・<code>decodingError</code>（デコード失敗）の 3 種を持つ。</p>
+  <table>
+    <tr><th>メソッド</th><th>用途</th></tr>
+    <tr><td>フィード取得（fetchFeed）</td><td>記事フィードの一覧を取得</td></tr>
+    <tr><td>記事の Star（starArticle(id)）</td><td>指定記事に Star を付与</td></tr>
+    <tr><td>記事の Dismiss（dismissArticle(id)）</td><td>指定記事を非表示にする</td></tr>
+    <tr><td>エピソード一覧取得（fetchPodcasts）</td><td>ポッドキャストのエピソード一覧を取得</td></tr>
+    <tr><td>エピソード詳細取得（fetchPodcast(id)）</td><td>エピソード詳細を取得。再生直前の再取得にも使用（署名付き URL 失効対策）</td></tr>
+    <tr><td>RSS ソース一覧取得（fetchSources）</td><td>登録済み RSS ソースの一覧を取得</td></tr>
+    <tr><td>RSS ソース追加（addSource(name, url)）</td><td>名前と URL を指定して RSS ソースを追加</td></tr>
+    <tr><td>RSS ソース削除（deleteSource(url)）</td><td>URL をキーに RSS ソースを削除（DELETE /settings/sources?url=）</td></tr>
+  </table>
+  <p>再生位置はサーバーに送らず端末ローカルに保存するため、再生位置 API は存在しない。既定難易度・既定再生速度の設定 API も存在せず、これらは端末ローカル（UserDefaults）のみで管理する。RSS ソースの実エンドポイントは <code>/settings/sources</code> で、URL をキーとし ID は持たない。</p>
 
   <h3>モックテスト戦略</h3>
   <p><code>URLSessionProtocol</code> に準拠した <code>MockURLSession</code> をテスト用に定義し、<code>APIClient</code> に注入する。ViewModel のテストでは <code>APIClient</code> 自体をモック可能なプロトコル（<code>APIClientProtocol</code>）に差し替える。</p>
@@ -364,63 +338,15 @@ final class APIClient {
   <!-- ======= AVPLAYER ======= -->
   <h2 id="avplayer">7. 音声再生（AVPlayer）設計</h2>
 
-  <pre>// Podcast/AudioPlayerState.swift
-@Observable
-final class AudioPlayerState {
-  private var player: AVPlayer?
-  private var timeObserver: Any?
-  private var positionSaveTask: Task&lt;Void, Never&gt;?
-
-  var currentPodcast: Podcast?
-  var isPlaying: Bool = false
-  var currentTime: Double = 0
-  var duration: Double = 0
-  var speed: Float = 1.0
-
-  func play(podcast: Podcast) {
-    // 1. 既存の再生を停止・クリーンアップ
-    stopAndCleanup()
-
-    // 2. AVAudioSession を .playback カテゴリに設定（バックグラウンド再生）
-    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-    try? AVAudioSession.sharedInstance().setActive(true)
-
-    // 3. AVPlayerItem 生成・再生位置復元
-    guard let url = URL(string: podcast.audioUrl ?? "") else { return }
-    let item = AVPlayerItem(url: url)
-    player = AVPlayer(playerItem: item)
-    player?.rate = speed
-    player?.seek(to: CMTime(seconds: podcast.playbackPositionSeconds, preferredTimescale: 600))
-    player?.play()
-
-    // 4. 再生位置の定期更新（0.5 秒ごと）
-    timeObserver = player?.addPeriodicTimeObserver(
-      forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
-      queue: .main
-    ) { [weak self] time in
-      self?.currentTime = time.seconds
-      self?.duration = item.duration.seconds.isNaN ? 0 : item.duration.seconds
-    }
-
-    // 5. 10 秒ごとに PATCH /podcasts/:id/position を送信
-    positionSaveTask = Task { ... }
-
-    currentPodcast = podcast
-    isPlaying = true
-  }
-
-  func togglePlayPause() { ... }
-  func seek(to seconds: Double) { ... }
-  func setSpeed(_ speed: Float) { player?.rate = isPlaying ? speed : 0; self.speed = speed }
-
-  private func stopAndCleanup() {
-    positionSaveTask?.cancel()
-    if let obs = timeObserver { player?.removeTimeObserver(obs) }
-    player?.pause()
-    player = nil
-    isPlaying = false
-  }
-}</pre>
+  <p><code>AudioPlayerState</code>（<code>@Observable</code>）は <code>AVPlayer</code> をラップし、再生対象エピソード・再生中フラグ・現在位置・総再生時間・再生速度を保持する。再生開始（<code>play</code>）は次の手順で行う。</p>
+  <ol>
+    <li>既存の再生を停止・クリーンアップする。</li>
+    <li><code>AVAudioSession</code> を <code>.playback</code> カテゴリ・<code>.spokenAudio</code> モードで有効化し、バックグラウンド再生に対応する。</li>
+    <li>再生直前に GET /podcasts/{id} でエピソードを再取得し、失効対策済みの署名付き URL で <code>AVPlayerItem</code> を生成する。保存済み再生位置へ seek し、再生速度（rate）を設定して再生を開始する。</li>
+    <li>0.5 秒ごとに現在の再生位置と総再生時間（duration）を更新する。</li>
+    <li>約 10 秒ごとに再生位置を UserDefaults（キー: <code>podcast_position:{id}</code>）に保存する。サーバーへは送信しない。</li>
+  </ol>
+  <p>その他の操作として、<code>togglePlayPause</code> は再生／一時停止を切り替え、<code>seek</code> は指定秒へ再生位置を移動し、<code>setSpeed</code> は再生速度を変更する（再生中のみ実際の rate へ反映）。クリーンアップ処理では位置保存タスクのキャンセル・時間オブザーバの解除・プレイヤーの停止と解放・再生中フラグの解除を行う。</p>
 
   <h3>バックグラウンド再生設定</h3>
   <p>Info.plist の <code>UIBackgroundModes</code> に <code>audio</code> を追加。<code>AVAudioSession.Category.playback</code> + <code>AVAudioSession.Mode.spokenAudio</code> でポッドキャスト向けの設定にする。</p>
@@ -428,59 +354,54 @@ final class AudioPlayerState {
   <!-- ======= FILE STRUCTURE ======= -->
   <h2 id="filestructure">8. ファイル構成</h2>
 
-  <pre>ios/TechNewsPodcast/
-├── TechNewsPodcastApp.swift        # @main エントリポイント
-├── ContentView.swift               # TabView（Feed/Podcast/Subscriptions/Settings）
-├── InitialSetupView.swift          # API 未設定時の初回セットアップ画面
-│
-├── AppState.swift                  # グローバル状態（@Observable）
-│
-├── Models/
-│   ├── Article.swift               # Codable: フィード記事
-│   ├── Podcast.swift               # Codable: エピソード
-│   ├── RssSource.swift             # Codable: RSS ソース
-│   └── Settings.swift             # Codable: 設定
-│
-├── Networking/
-│   ├── APIClient.swift             # URLSession ラッパー・全 API メソッド
-│   ├── APIEndpoint.swift           # エンドポイント定義
-│   └── APIError.swift             # エラー型
-│
-├── Feed/
-│   ├── FeedView.swift
-│   ├── FeedViewModel.swift
-│   └── ArticleRowView.swift
-│
-├── Podcast/
-│   ├── PodcastView.swift
-│   ├── PodcastViewModel.swift
-│   ├── PodcastRowView.swift
-│   ├── AudioPlayerView.swift       # 再生コントロール UI
-│   └── AudioPlayerState.swift      # AVPlayer ラッパー（@Observable）
-│
-├── Subscriptions/                  ← RSS 購読管理（専用タブ）
-│   ├── SubscriptionsView.swift     # 一覧 + 追加ボタン
-│   ├── SubscriptionsViewModel.swift
-│   ├── SubscriptionRowView.swift   # 各行（スワイプ削除対応）
-│   └── AddSubscriptionSheet.swift  # URL 追加モーダル
-│
-├── Settings/
-│   ├── SettingsView.swift
-│   └── SettingsViewModel.swift
-│
-└── Tests/
-    ├── APIClientTests.swift
-    ├── FeedViewModelTests.swift
-    ├── PodcastViewModelTests.swift
-    ├── SubscriptionsViewModelTests.swift  ← RSS 追加・削除テスト
-    └── SettingsViewModelTests.swift</pre>
+  <p>ルートディレクトリ <code>ios/TechNewsPodcast/</code> 配下の構成は次のとおり。</p>
+  <table>
+    <tr><th>ディレクトリ / ファイル</th><th>含む要素・責務</th></tr>
+    <tr><td>TechNewsPodcastApp.swift</td><td>@main エントリポイント</td></tr>
+    <tr><td>ContentView.swift</td><td>TabView（Feed/Podcast/Subscriptions/Settings）</td></tr>
+    <tr><td>InitialSetupView.swift</td><td>API 未設定時の初回セットアップ画面</td></tr>
+    <tr><td>AppState.swift</td><td>グローバル状態（@Observable）</td></tr>
+    <tr><td>Models/</td><td>Codable モデル群</td></tr>
+    <tr><td>Models/Article.swift</td><td>Codable: フィード記事</td></tr>
+    <tr><td>Models/Podcast.swift</td><td>Codable: エピソード</td></tr>
+    <tr><td>Models/RssSource.swift</td><td>Codable: RSS ソース</td></tr>
+    <tr><td>Models/Settings.swift</td><td>Codable: 設定</td></tr>
+    <tr><td>Networking/</td><td>ネットワーク層</td></tr>
+    <tr><td>Networking/APIClient.swift</td><td>URLSession ラッパー・全 API メソッド</td></tr>
+    <tr><td>Networking/APIEndpoint.swift</td><td>エンドポイント定義</td></tr>
+    <tr><td>Networking/APIError.swift</td><td>エラー型</td></tr>
+    <tr><td>Feed/</td><td>フィード機能</td></tr>
+    <tr><td>Feed/FeedView.swift</td><td>フィード画面</td></tr>
+    <tr><td>Feed/FeedViewModel.swift</td><td>フィード ViewModel</td></tr>
+    <tr><td>Feed/ArticleRowView.swift</td><td>記事行ビュー</td></tr>
+    <tr><td>Podcast/</td><td>ポッドキャスト機能</td></tr>
+    <tr><td>Podcast/PodcastView.swift</td><td>ポッドキャスト画面</td></tr>
+    <tr><td>Podcast/PodcastViewModel.swift</td><td>ポッドキャスト ViewModel</td></tr>
+    <tr><td>Podcast/PodcastRowView.swift</td><td>エピソード行ビュー</td></tr>
+    <tr><td>Podcast/AudioPlayerView.swift</td><td>再生コントロール UI</td></tr>
+    <tr><td>Podcast/AudioPlayerState.swift</td><td>AVPlayer ラッパー（@Observable）</td></tr>
+    <tr><td>Subscriptions/</td><td>RSS 購読管理（専用タブ）</td></tr>
+    <tr><td>Subscriptions/SubscriptionsView.swift</td><td>一覧 + 追加ボタン</td></tr>
+    <tr><td>Subscriptions/SubscriptionsViewModel.swift</td><td>購読 ViewModel</td></tr>
+    <tr><td>Subscriptions/SubscriptionRowView.swift</td><td>各行（スワイプ削除対応）</td></tr>
+    <tr><td>Subscriptions/AddSubscriptionSheet.swift</td><td>URL 追加モーダル</td></tr>
+    <tr><td>Settings/</td><td>設定機能</td></tr>
+    <tr><td>Settings/SettingsView.swift</td><td>設定画面</td></tr>
+    <tr><td>Settings/SettingsViewModel.swift</td><td>設定 ViewModel</td></tr>
+    <tr><td>Tests/</td><td>テスト群</td></tr>
+    <tr><td>Tests/APIClientTests.swift</td><td>API クライアントテスト</td></tr>
+    <tr><td>Tests/FeedViewModelTests.swift</td><td>フィード ViewModel テスト</td></tr>
+    <tr><td>Tests/PodcastViewModelTests.swift</td><td>ポッドキャスト ViewModel テスト</td></tr>
+    <tr><td>Tests/SubscriptionsViewModelTests.swift</td><td>RSS 追加・削除テスト</td></tr>
+    <tr><td>Tests/SettingsViewModelTests.swift</td><td>設定 ViewModel テスト</td></tr>
+  </table>
 
   <h3>テスト方針</h3>
   <table>
     <tr><th>テスト対象</th><th>テスト内容</th></tr>
     <tr><td>APIClient</td><td>モック URLSession でレスポンスデコード・エラーハンドリング</td></tr>
     <tr><td>FeedViewModel</td><td>記事取得・Star 後のリスト除去・Dismiss 後のリスト除去</td></tr>
-    <tr><td>PodcastViewModel</td><td>一覧取得・processing 状態のポーリング停止（completed 受信後）</td></tr>
+    <tr><td>PodcastViewModel</td><td>一覧/詳細取得・再生直前の再取得（署名付き URL 失効対策）</td></tr>
     <tr><td>SubscriptionsViewModel</td><td>追加成功・URL 重複 409 エラー表示・削除後のリスト更新</td></tr>
     <tr><td>AudioPlayerState</td><td>speed 変更が AVPlayer.rate に反映される（モック AVPlayer）</td></tr>
   </table>

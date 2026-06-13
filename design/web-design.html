@@ -193,7 +193,7 @@
       <tr><th>要素</th><th>詳細</th></tr>
       <tr><td>購読中ソース一覧</td><td>ソース名・URL・有効/無効トグルをテーブルまたはカードで表示</td></tr>
       <tr><td>URL 追加フォーム</td><td>「ソース名」「RSS URL」入力欄 + 追加ボタン（インラインバリデーション付き）</td></tr>
-      <tr><td>削除</td><td>各行の削除ボタン → 確認ダイアログ → DELETE /subscriptions/:id</td></tr>
+      <tr><td>削除</td><td>各行の削除ボタン → 確認ダイアログ → DELETE /settings/sources?url=（URL キー）</td></tr>
       <tr><td>バリデーション</td><td>URL 形式チェック（クライアント）+ 重複チェック（サーバー 409 エラー表示）</td></tr>
       <tr><td>空状態</td><td>デフォルト2件（HackerNews / Zenn.dev）が初期表示</td></tr>
       <tr><td>エラー表示</td><td>422: 「RSS フィードとして取得できません」、409: 「この URL は登録済みです」</td></tr>
@@ -201,7 +201,7 @@
     <h4>URL 追加フォームの UI フロー</h4>
     <ol>
       <li>「ソース名」と「RSS URL」を入力</li>
-      <li>送信 → POST /subscriptions</li>
+      <li>送信 → POST /settings/sources（body <code>{name, url}</code>）</li>
       <li>成功: 一覧にリアルタイム追加・トースト「追加しました」</li>
       <li>失敗: インラインエラーメッセージ表示（フォームはリセットしない）</li>
     </ol>
@@ -242,24 +242,29 @@
   <h2 id="state">5. 状態管理</h2>
 
   <h3>グローバル状態（React Context）</h3>
-  <pre>// contexts/AppContext.tsx
-type AppState = {
-  // API 設定（localStorage 永続化）
-  apiBaseUrl: string;
-  apiKey: string;
-  isConfigured: boolean;
-
-  // デフォルト設定
-  defaultDifficulty: Difficulty;
-  defaultPlaybackSpeed: number;
-
-  // 音声再生状態（全ページ共通）
-  currentPodcast: Podcast | null;
-  isPlaying: boolean;
-  currentTime: number;
-  duration: number;
-  playbackSpeed: number;
-}</pre>
+  <p>
+    React Context（<code>AppContext</code>）が全ページ共通のグローバル状態を保持する。API 接続設定とデフォルト設定は localStorage に永続化し、音声再生状態は全ページ共通で同期される。状態は次のフィールドで構成される。
+  </p>
+  <table>
+    <tr><th>カテゴリ</th><th>フィールド</th><th>説明</th></tr>
+    <tr><td rowspan="3">API 設定（localStorage 永続化）</td><td>apiBaseUrl</td><td>バックエンド API のベース URL</td></tr>
+    <tr><td>apiKey</td><td>API キー</td></tr>
+    <tr><td>isConfigured</td><td>初期設定が完了済みかどうか</td></tr>
+    <tr><td rowspan="2">デフォルト設定</td><td>defaultDifficulty</td><td>既定の難易度</td></tr>
+    <tr><td>defaultPlaybackSpeed</td><td>既定の再生速度</td></tr>
+    <tr><td rowspan="5">音声再生状態（全ページ共通）</td><td>currentPodcast</td><td>再生中の Podcast（未再生時は未設定）</td></tr>
+    <tr><td>isPlaying</td><td>再生中かどうか</td></tr>
+    <tr><td>currentTime</td><td>現在の再生位置（秒）</td></tr>
+    <tr><td>duration</td><td>総再生時間（秒）</td></tr>
+    <tr><td>playbackSpeed</td><td>現在の再生速度</td></tr>
+  </table>
+  <p>状態更新のアクションは以下を提供する。</p>
+  <ul>
+    <li><strong>CONFIGURE</strong>: API 接続設定を登録し設定完了状態へ遷移させる</li>
+    <li><strong>RESTORE_DONE</strong>: localStorage からの設定復元完了を反映する</li>
+    <li><strong>SET_PODCAST</strong>: 再生対象の Podcast を設定する</li>
+    <li><strong>SET_SPEED</strong>: 再生速度を変更する</li>
+  </ul>
 
   <h3>ローカル状態（各ページ / useReducer）</h3>
   <table>
@@ -274,207 +279,169 @@ type AppState = {
   <h2 id="audio">6. 音声再生設計</h2>
 
   <h3>AudioPlayerBar の構成要素</h3>
-  <pre>AudioPlayerBar
-├── エピソードタイトル（日本語イントロ先頭 50 文字）
-├── 難易度バッジ
-├── シークバー（input[type=range]）
-│   ├── 現在時刻表示（MM:SS）
-│   └── 総時間表示（MM:SS）
-├── 再生コントロール
-│   ├── -15秒 ボタン
-│   ├── 再生/一時停止 ボタン
-│   └── +30秒 ボタン
-└── 速度セレクタ（×0.5 〜 ×2.5 の 8 段階）</pre>
+  <ul>
+    <li>エピソードタイトル（日本語イントロ先頭 50 文字）</li>
+    <li>難易度バッジ</li>
+    <li>シークバー（<code>input[type=range]</code>）
+      <ul>
+        <li>現在時刻表示（MM:SS）</li>
+        <li>総時間表示（MM:SS）</li>
+      </ul>
+    </li>
+    <li>再生コントロール
+      <ul>
+        <li>-15 秒 ボタン</li>
+        <li>再生 / 一時停止 ボタン</li>
+        <li>+30 秒 ボタン</li>
+      </ul>
+    </li>
+    <li>速度セレクタ（×0.5 〜 ×2.5 の 8 段階）</li>
+  </ul>
 
   <h3>HTML5 Audio API の実装方針</h3>
-  <pre>// hooks/useAudioPlayer.ts
-const audio = new Audio(audioUrl);
-
-// 速度制御
-audio.playbackRate = playbackSpeed;
-
-// 再生位置
-audio.currentTime = savedPosition;  // 復元時
-audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
-
-// 再生終了時
-audio.addEventListener('ended', () => {
-  setIsPlaying(false);
-  // PATCH /podcasts/:id/position で 0 リセット
-});
-
-// アンマウント時にクリーンアップ
-return () => { audio.pause(); audio.src = ''; };</pre>
+  <p>
+    再生制御は単一の HTML5 <code>&lt;audio&gt;</code> 要素を全ページで共有し、ページ遷移をまたいでも再生が継続するように設計する。再生速度は ×0.5 〜 ×2.5 の 8 段階（0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 1.75 / 2.0 / 2.5）から選択でき、選択値は <code>playbackRate</code> に反映する。
+  </p>
+  <p>
+    再生位置は、保存済み位置の取得処理（getSavedPosition）で前回位置を読み出して再生開始時に復元する。再生中は約 10 秒ごとに現在位置を localStorage（キー <code>podcast_position:{id}</code>）へ保存し、再生終了時には位置をリセットする。音量設定も localStorage に永続化し、次回再生時に復元する。要素はアンマウント時に停止・解放してリソースをクリーンアップする。
+  </p>
 
   <h3>再生位置の保存フロー</h3>
   <ol>
-    <li><code>timeupdate</code> イベントで <code>currentTime</code> を 10 秒ごとに PATCH /podcasts/:id/position へ送信（デバウンス）</li>
-    <li>次回 /podcast ページ訪問時、Podcast 一覧取得と同時に <code>playback_position_seconds</code> を取得</li>
-    <li>再生開始時に <code>audio.currentTime = savedPosition</code> で位置を復元</li>
+    <li><code>timeupdate</code> イベントで現在位置を約 10 秒ごとに localStorage（キー <code>podcast_position:{id}</code>）へ保存する（サーバーへは送信しない）</li>
+    <li>次回 /podcast ページ訪問時、保存済み位置を localStorage から取得する（<code>getSavedPosition</code>）</li>
+    <li>再生開始時に <code>audio.currentTime = savedPosition</code> で位置を復元する</li>
   </ol>
 
   <!-- ======= API CLIENT ======= -->
   <h2 id="api-client">7. API クライアント設計</h2>
 
-  <pre>// lib/api.ts
-const API_BASE = localStorage.getItem('api_base_url') ?? '';
-const API_KEY  = localStorage.getItem('api_key') ?? '';
-
-async function apiRequest&lt;T&gt;(
-  path: string,
-  options?: RequestInit
-): Promise&lt;T&gt; {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': API_KEY,
-      ...options?.headers,
-    },
-  });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, error.detail ?? 'Unknown error');
-  }
-  return res.json();
-}
-
-// 各 API 関数
-export const api = {
-  getFeed: () => apiRequest&lt;FeedResponse&gt;('/feed'),
-  starArticle: (id: string) => apiRequest&lt;StarResponse&gt;(`/articles/${id}/star`, { method: 'POST' }),
-  dismissArticle: (id: string) => apiRequest&lt;void&gt;(`/articles/${id}/dismiss`, { method: 'POST' }),
-  getPodcasts: () => apiRequest&lt;PodcastListResponse&gt;('/podcasts'),
-  getPodcast: (id: string) => apiRequest&lt;Podcast&gt;(`/podcasts/${id}`),
-  updatePosition: (id: string, pos: number) =>
-    apiRequest&lt;void&gt;(`/podcasts/${id}/position`, { method: 'PATCH', body: JSON.stringify({ position_seconds: pos }) }),
-  getSubscriptions: () => apiRequest&lt;SubscriptionsResponse&gt;('/subscriptions'),
-  addSubscription: (name: string, url: string) =>
-    apiRequest&lt;SubscriptionsResponse&gt;('/subscriptions', { method: 'POST', body: JSON.stringify({ name, url }) }),
-  deleteSubscription: (id: string) =>
-    apiRequest&lt;void&gt;(`/subscriptions/${id}`, { method: 'DELETE' }),
-  getSettings: () => apiRequest&lt;Settings&gt;('/settings'),
-  updateSettings: (s: Partial&lt;Settings&gt;) =>
-    apiRequest&lt;Settings&gt;('/settings', { method: 'PUT', body: JSON.stringify(s) }),
-};</pre>
+  <p>
+    クライアントは直接バックエンドを叩かず、Next.js 側の BFF プロキシ（<code>/api/backend/*</code>）を経由する。クライアントが localStorage に保持する API キーとバックエンドのベース URL は、リクエスト時に <code>X-API-Key</code>・<code>X-Backend-Base-Url</code> ヘッダとしてプロキシへ渡し、プロキシがバックエンドへ中継する。これによりブラウザのオリジン制約（CORS）や混在コンテンツを回避する。
+  </p>
+  <p>
+    レスポンスが非正常の場合は本文の <code>detail</code> を含む <code>ApiError</code> へ正規化し、ステータスコードとメッセージを一貫した形で扱う。プロキシ経由で公開する API エンドポイントは以下のとおり。
+  </p>
+  <table>
+    <tr><th>メソッド</th><th>パス</th><th>用途</th></tr>
+    <tr><td>GET</td><td>/feed</td><td>記事フィードの取得</td></tr>
+    <tr><td>POST</td><td>/articles/:id/star</td><td>記事のスター登録</td></tr>
+    <tr><td>POST</td><td>/articles/:id/dismiss</td><td>記事の非表示</td></tr>
+    <tr><td>GET</td><td>/podcasts</td><td>Podcast 一覧の取得</td></tr>
+    <tr><td>GET</td><td>/podcasts/:id</td><td>Podcast 詳細の取得</td></tr>
+    <tr><td>GET</td><td>/settings/sources</td><td>RSS ソース一覧の取得</td></tr>
+    <tr><td>POST</td><td>/settings/sources</td><td>RSS ソースの追加（body <code>{name, url}</code>）</td></tr>
+    <tr><td>DELETE</td><td>/settings/sources?url=</td><td>RSS ソースの削除（URL キー）</td></tr>
+  </table>
+  <div class="note">
+    再生位置・既定難易度・既定再生速度はサーバー API を持たず、すべて localStorage に保存する（<code>PATCH /podcasts/:id/position</code>・<code>GET·PUT /settings</code> は存在しない）。RSS の購読画面（フロントエンドのページ）は <code>/subscriptions</code> だが、呼び出すバックエンド API は <code>/settings/sources</code>（URL キー）である点に注意。
+  </div>
 
   <h3>型定義</h3>
-  <pre>// types/index.ts
-export type Difficulty = 'toeic_600' | 'toeic_900' | 'ielts_55' | 'ielts_7' | 'eiken_2' | 'eiken_p1';
+  <p>難易度（DifficultyLevel）は次の列挙値を取る。</p>
+  <table>
+    <tr><th>値</th><th>説明</th></tr>
+    <tr><td>toeic_600</td><td>TOEIC 600 相当</td></tr>
+    <tr><td>toeic_900</td><td>TOEIC 900 相当</td></tr>
+    <tr><td>ielts_55</td><td>IELTS 5.5 相当</td></tr>
+    <tr><td>ielts_7</td><td>IELTS 7.0 相当</td></tr>
+    <tr><td>eiken_2</td><td>英検 2 級相当</td></tr>
+    <tr><td>eiken_p1</td><td>英検準 1 級相当</td></tr>
+  </table>
 
-export interface Article {
-  id: string; title: string; url: string; source: string;
-  score: number; published_at: string;
-}
+  <p>Article（記事）</p>
+  <table>
+    <tr><th>項目</th><th>型</th><th>説明</th></tr>
+    <tr><td>id</td><td>string</td><td>記事 ID</td></tr>
+    <tr><td>title</td><td>string</td><td>記事タイトル</td></tr>
+    <tr><td>url</td><td>string</td><td>記事 URL</td></tr>
+    <tr><td>source</td><td>string</td><td>ソース名</td></tr>
+    <tr><td>score</td><td>number</td><td>表示順を決めるスコア</td></tr>
+    <tr><td>published_at</td><td>string</td><td>公開日時</td></tr>
+  </table>
 
-export interface Podcast {
-  id: string; type: 'single' | 'digest'; article_ids: string[];
-  difficulty: Difficulty; audio_url: string | null;
-  japanese_intro_text: string; duration_seconds: number;
-  status: 'processing' | 'completed' | 'failed' | 'partial_failed';
-  playback_position_seconds: number; created_at: string;
-}
+  <p>Podcast（生成音声）</p>
+  <table>
+    <tr><th>項目</th><th>型</th><th>説明</th></tr>
+    <tr><td>id</td><td>string</td><td>Podcast ID</td></tr>
+    <tr><td>type</td><td>'single' | 'digest'</td><td>単一記事 / ダイジェストの種別</td></tr>
+    <tr><td>article_ids</td><td>string[]</td><td>対象記事 ID の配列</td></tr>
+    <tr><td>difficulty</td><td>DifficultyLevel</td><td>難易度</td></tr>
+    <tr><td>audio_url</td><td>string | null</td><td>音声ファイル URL（未生成時は null）</td></tr>
+    <tr><td>japanese_intro_text</td><td>string</td><td>日本語イントロ文</td></tr>
+    <tr><td>duration_seconds</td><td>number</td><td>総再生時間（秒）</td></tr>
+    <tr><td>status</td><td>'processing' | 'completed' | 'failed' | 'partial_failed'</td><td>生成ステータス</td></tr>
+    <tr><td>playback_position_seconds</td><td>number</td><td>保存済み再生位置（秒）</td></tr>
+    <tr><td>created_at</td><td>string</td><td>生成日時</td></tr>
+  </table>
 
-export interface RssSource {
-  id: string; name: string; url: string; enabled: boolean;
-}
-
-export interface Settings {
-  default_difficulty: Difficulty;
-  default_playback_speed: number;
-}</pre>
+  <p>Source（RSS 購読ソース）</p>
+  <table>
+    <tr><th>項目</th><th>型</th><th>説明</th></tr>
+    <tr><td>id</td><td>string</td><td>ソース ID</td></tr>
+    <tr><td>name</td><td>string</td><td>ソース名</td></tr>
+    <tr><td>url</td><td>string</td><td>RSS フィード URL</td></tr>
+    <tr><td>enabled</td><td>boolean</td><td>購読が有効かどうか</td></tr>
+  </table>
 
   <!-- ======= FILE STRUCTURE ======= -->
   <h2 id="filestructure">8. ファイル構成</h2>
 
-  <pre>web/
-├── app/
-│   ├── layout.tsx             ← ルートレイアウト（NavigationBar + AudioPlayerBar）
-│   ├── page.tsx               ← / リダイレクト or セットアップ画面
-│   ├── feed/
-│   │   └── page.tsx           ← /feed
-│   ├── podcast/
-│   │   ├── page.tsx           ← /podcast（一覧）
-│   │   └── [id]/
-│   │       └── page.tsx       ← /podcast/:id（詳細）
-│   ├── subscriptions/
-│   │   └── page.tsx           ← /subscriptions（RSS 購読管理）
-│   └── settings/
-│       └── page.tsx           ← /settings
-│
-├── components/
-│   ├── NavigationBar.tsx
-│   ├── AudioPlayerBar.tsx
-│   ├── ArticleCard.tsx
-│   ├── PodcastCard.tsx
-│   ├── subscriptions/
-│   │   ├── SubscriptionRow.tsx
-│   │   └── AddSubscriptionForm.tsx   ← URL 入力フォーム
-│   ├── ui/
-│   │   ├── DifficultyBadge.tsx
-│   │   ├── StatusBadge.tsx
-│   │   ├── Toast.tsx
-│   │   ├── ConfirmDialog.tsx
-│   │   ├── SetupModal.tsx
-│   │   └── SkeletonCard.tsx
-│   └── providers/
-│       └── AppProvider.tsx     ← AppContext Provider
-│
-├── contexts/
-│   └── AppContext.tsx
-│
-├── hooks/
-│   ├── useAudioPlayer.ts      ← HTML5 Audio API ラッパー
-│   ├── usePodcastPolling.ts   ← 生成中 Podcast のポーリング
-│   └── useLocalStorage.ts     ← localStorage の型付きラッパー
-│
-├── lib/
-│   ├── api.ts                 ← fetch ラッパー・全 API 関数
-│   └── config.ts              ← localStorage キー定数
-│
-├── types/
-│   └── index.ts               ← 全型定義
-│
-├── Dockerfile
-├── next.config.ts
-├── tailwind.config.ts
-└── tsconfig.json</pre>
+  <table>
+    <tr><th>ディレクトリ / ファイル</th><th>責務</th></tr>
+    <tr><td>app/layout.tsx</td><td>ルートレイアウト（NavigationBar + AudioPlayerBar）</td></tr>
+    <tr><td>app/page.tsx</td><td>/ のリダイレクト、またはセットアップ画面</td></tr>
+    <tr><td>app/feed/page.tsx</td><td>/feed ページ</td></tr>
+    <tr><td>app/podcast/page.tsx</td><td>/podcast（一覧）ページ</td></tr>
+    <tr><td>app/podcast/[id]/page.tsx</td><td>/podcast/:id（詳細）ページ</td></tr>
+    <tr><td>app/subscriptions/page.tsx</td><td>/subscriptions（RSS 購読管理）ページ</td></tr>
+    <tr><td>app/settings/page.tsx</td><td>/settings ページ</td></tr>
+    <tr><td>components/NavigationBar.tsx</td><td>グローバルナビゲーション</td></tr>
+    <tr><td>components/AudioPlayerBar.tsx</td><td>全ページ共通の音声プレイヤー</td></tr>
+    <tr><td>components/ArticleCard.tsx</td><td>記事カード</td></tr>
+    <tr><td>components/PodcastCard.tsx</td><td>Podcast カード</td></tr>
+    <tr><td>components/subscriptions/SubscriptionRow.tsx</td><td>購読ソースの行</td></tr>
+    <tr><td>components/subscriptions/AddSubscriptionForm.tsx</td><td>URL 入力フォーム</td></tr>
+    <tr><td>components/ui/DifficultyBadge.tsx</td><td>難易度バッジ</td></tr>
+    <tr><td>components/ui/StatusBadge.tsx</td><td>ステータスバッジ</td></tr>
+    <tr><td>components/ui/Toast.tsx</td><td>トースト通知</td></tr>
+    <tr><td>components/ui/ConfirmDialog.tsx</td><td>確認ダイアログ</td></tr>
+    <tr><td>components/ui/SetupModal.tsx</td><td>初期設定モーダル</td></tr>
+    <tr><td>components/ui/SkeletonCard.tsx</td><td>読み込み中プレースホルダー</td></tr>
+    <tr><td>components/providers/AppProvider.tsx</td><td>AppContext のプロバイダ</td></tr>
+    <tr><td>contexts/AppContext.tsx</td><td>グローバル状態の定義</td></tr>
+    <tr><td>hooks/useAudioPlayer.ts</td><td>HTML5 Audio API ラッパー</td></tr>
+    <tr><td>hooks/usePodcastPolling.ts</td><td>生成中 Podcast のポーリング</td></tr>
+    <tr><td>hooks/useLocalStorage.ts</td><td>localStorage の型付きラッパー</td></tr>
+    <tr><td>lib/api.ts</td><td>API クライアント・全 API 関数</td></tr>
+    <tr><td>lib/config.ts</td><td>localStorage キー定数</td></tr>
+    <tr><td>types/index.ts</td><td>全型定義</td></tr>
+    <tr><td>Dockerfile</td><td>Cloud Run 用コンテナビルド定義</td></tr>
+    <tr><td>next.config.ts</td><td>Next.js 設定</td></tr>
+    <tr><td>tailwind.config.ts</td><td>Tailwind CSS 設定</td></tr>
+    <tr><td>tsconfig.json</td><td>TypeScript 設定</td></tr>
+  </table>
 
   <!-- ======= DEPLOY ======= -->
   <h2 id="deploy">9. デプロイ設計（Cloud Run）</h2>
 
   <h3>Dockerfile</h3>
-  <pre># web/Dockerfile
-FROM node:22-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-FROM node:22-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
-EXPOSE 3000
-CMD ["node", "server.js"]</pre>
+  <p>
+    Node.js（Alpine）ベースのマルチステージビルドを採用する。ビルドステージで依存解決と <code>next build</code> を行い、ランタイムステージには Next.js のスタンドアローン出力（standalone）と静的アセットのみを取り込み、軽量なコンテナを生成する。具体的なビルド定義の正本はリポジトリ内の <code>web/Dockerfile</code> を参照する。
+  </p>
 
   <h3>デプロイコマンド</h3>
-  <pre>export PROJECT_ID=$(gcloud config get-value project)
-export REGION="asia-northeast1"
-
-# ビルド & プッシュ
-docker build -f Dockerfile -t gcr.io/${PROJECT_ID}/news-listen-web:latest .
-docker push gcr.io/${PROJECT_ID}/news-listen-web:latest
-
-# Cloud Run にデプロイ
-gcloud run deploy news-listen-web \
-  --image gcr.io/${PROJECT_ID}/news-listen-web:latest \
-  --region ${REGION} \
-  --allow-unauthenticated \   # 個人アクセスのため（必要なら IAP で制限）
-  --port 3000</pre>
+  <p>
+    デプロイは大きく以下の流れで行う。リージョンは <code>asia-northeast1</code> を基本とする。
+  </p>
+  <ol>
+    <li>コンテナイメージをビルドし、コンテナレジストリへプッシュする</li>
+    <li>そのイメージを Cloud Run サービス（news-listen-web）へデプロイする（待受ポート 3000）</li>
+    <li>個人利用のため未認証アクセスを許可する。アクセス制限が必要な場合は IAP 等で保護する</li>
+  </ol>
+  <p>
+    実際のコマンド列の正本は運用文書およびリポジトリ内のデプロイスクリプトに置く。本設計書では手順の方針のみを記載する。
+  </p>
 
   <div class="note">
     <strong>next.config.ts</strong> で <code>output: 'standalone'</code> を設定し、<code>node_modules</code> を含まない軽量なスタンドアローンサーバーを生成する。<br>

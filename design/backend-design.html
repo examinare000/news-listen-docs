@@ -86,6 +86,14 @@
     <div class="badge">リージョン <span>asia-northeast1</span></div>
   </div>
 
+  <div class="warn">
+    <strong>是正済み（2026-06-14）:</strong> 本書に記載されていた一部エンドポイントは実装と乖離していたため、実装済み API に合わせて是正した。
+    実装されている公開 API は <code>GET /health</code> / <code>GET /feed</code> / <code>POST /articles/{id}/star</code> / <code>POST /articles/{id}/dismiss</code> /
+    <code>GET /podcasts</code> / <code>GET /podcasts/{id}</code> / <code>GET·POST·DELETE /settings/sources</code> のみ。
+    RSS は <code>/settings/sources</code>（URL をキーとし ID を持たない）で操作する（<code>/subscriptions/{id}</code> は誤り）。
+    再生位置（<code>PATCH /podcasts/{id}/position</code>）と既定難易度・速度（<code>GET·POST /settings</code>）の API は<strong>存在せず</strong>、クライアント側でローカル保存する（Web=localStorage / iOS=UserDefaults。<a href="../adr/008-ios-local-state-persistence.md">ADR-008</a>）。
+  </div>
+
   <!-- ======= INFRA ======= -->
   <h2 id="infra">1. インフラ構成</h2>
 
@@ -119,7 +127,7 @@
     <text x="390" y="52" fill="#4fc3f7" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Cloud Run Service</text>
     <text x="390" y="70" fill="#8b8fa8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">FastAPI  :8080</text>
     <text x="390" y="88" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">/feed  /articles  /podcasts</text>
-    <text x="390" y="104" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">/subscriptions  /settings</text>
+    <text x="390" y="104" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">/settings/sources</text>
     <!-- API → Cloud Tasks -->
     <line x1="390" y1="114" x2="390" y2="140" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
     <!-- Cloud Tasks (center-middle) -->
@@ -302,12 +310,14 @@
   </svg>
 
   <h3>Cloud Tasks タスク形式</h3>
-  <pre>{
-  "podcast_id": "uuid-v4",
-  "article_id": "sha256_hash_20chars",
-  "difficulty": "toeic_900",
-  "user_id": "default"
-}</pre>
+  <p>Cloud Tasks のペイロード（JSON）に含まれるフィールド。</p>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+    <tr><td>podcast_id</td><td>string</td><td>生成対象の Podcast ID（UUID v4）</td></tr>
+    <tr><td>article_id</td><td>string</td><td>対象記事 ID（SHA-256(url)[:20]）</td></tr>
+    <tr><td>difficulty</td><td>string</td><td>難易度（例: toeic_900）</td></tr>
+    <tr><td>user_id</td><td>string</td><td>ユーザー ID（MVP = "default"）</td></tr>
+  </table>
 
   <!-- ======= API ======= -->
   <h2 id="api">4. API エンドポイント仕様</h2>
@@ -350,60 +360,43 @@
     <h4><span class="method get">GET</span> /podcasts/{id}</h4>
     <p>エピソード詳細。<code>status</code> で生成中/完了/失敗を確認できる。</p>
   </div>
-  <div class="endpoint-block">
-    <h4><span class="method patch">PATCH</span> /podcasts/{id}/position</h4>
-    <p>再生位置を保存する。</p>
-    <table>
-      <tr><th>リクエスト</th><th>型</th><th>説明</th></tr>
-      <tr><td>position_seconds</td><td>number</td><td>現在の再生位置（秒）</td></tr>
-    </table>
+  <div class="note">
+    <strong>再生位置はサーバー保存しない:</strong> 再生位置の保存用エンドポイント（旧 <code>PATCH /podcasts/{id}/position</code>）は実装しない。クライアントが端末ローカル（Web=localStorage、iOS=UserDefaults のキー <code>podcast_position:{id}</code>）に保存する（<a href="../adr/008-ios-local-state-persistence.md">ADR-008</a>）。
   </div>
 
   <h3>RSS 購読管理（Subscriptions）</h3>
   <div class="endpoint-block">
-    <h4><span class="method get">GET</span> /subscriptions</h4>
-    <p>購読中の RSS ソース一覧を返す。</p>
-    <pre>{
-  "sources": [
-    { "id": "hnrss_frontpage", "name": "HackerNews", "url": "https://hnrss.org/frontpage", "enabled": true },
-    { "id": "zenn_feed",       "name": "Zenn.dev",   "url": "https://zenn.dev/feed",       "enabled": true }
-  ]
-}
-// id: SHA-256(url)[:12] で自動生成（POST /subscriptions 時にサーバー側で付与）</pre>
+    <h4><span class="method get">GET</span> /settings/sources</h4>
+    <p>購読中の RSS ソース一覧を返す。各ソースは URL をキーとして識別し、ID は持たない。</p>
+    <table>
+      <tr><th>レスポンス</th><th>型</th><th>説明</th></tr>
+      <tr><td>sources</td><td>Source[]</td><td>購読中の RSS ソース一覧</td></tr>
+      <tr><td>sources[].name</td><td>string</td><td>表示名（例: HackerNews / Zenn.dev）</td></tr>
+      <tr><td>sources[].url</td><td>string</td><td>RSS フィード URL（識別キー）</td></tr>
+    </table>
   </div>
   <div class="endpoint-block">
-    <h4><span class="method post">POST</span> /subscriptions</h4>
-    <p>新しい RSS ソースを追加する。</p>
+    <h4><span class="method post">POST</span> /settings/sources</h4>
+    <p>新しい RSS ソースを追加する。成功時は更新後の一覧（sources）を返す。</p>
     <table>
       <tr><th>リクエスト</th><th>型</th><th>バリデーション</th></tr>
-      <tr><td>name</td><td>string</td><td>1〜50 文字</td></tr>
-      <tr><td>url</td><td>string</td><td>HTTP/HTTPS URL・重複不可</td></tr>
+      <tr><td>name</td><td>string</td><td>表示名</td></tr>
+      <tr><td>url</td><td>string</td><td>HTTP/HTTPS URL・重複不可（識別キー）</td></tr>
     </table>
     <table>
       <tr><th>エラー</th><th>説明</th></tr>
-      <tr><td>400</td><td>URL フォーマット不正</td></tr>
-      <tr><td>409</td><td>URL 重複</td></tr>
-      <tr><td>422</td><td>RSS フィードとして取得不可（バリデーション）</td></tr>
+      <tr><td>409</td><td>URL 重複（登録済み）</td></tr>
+      <tr><td>422</td><td>URL フォーマット不正（Pydantic 検証）</td></tr>
     </table>
   </div>
   <div class="endpoint-block">
-    <h4><span class="method delete">DELETE</span> /subscriptions/{id}</h4>
-    <p>RSS ソースを削除する。デフォルトソース（HackerNews / Zenn）は削除可能（確認なし）。</p>
+    <h4><span class="method delete">DELETE</span> /settings/sources?url={url}</h4>
+    <p>RSS ソースを削除する。削除対象はクエリパラメータ <code>url</code>（URL キー）で指定する。ID は用いない。成功時は更新後の一覧を返し、該当 URL が無い場合は 404。</p>
   </div>
 
-  <h3>Settings</h3>
-  <div class="endpoint-block">
-    <h4><span class="method get">GET</span> /settings</h4>
-    <p>ユーザー設定を返す（難易度・再生速度デフォルト値）。</p>
-  </div>
-  <div class="endpoint-block">
-    <h4><span class="method post">POST</span> /settings</h4>
-    <p>ユーザー設定を更新する。</p>
-    <table>
-      <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
-      <tr><td>default_difficulty</td><td>string</td><td>toeic_600 / toeic_900 / ielts_55 / ielts_7 / eiken_2 / eiken_p1</td></tr>
-      <tr><td>default_playback_speed</td><td>number</td><td>0.5〜2.5</td></tr>
-    </table>
+  <h3>既定設定（難易度・再生速度）</h3>
+  <div class="note">
+    <strong>既定設定はサーバー保存しない:</strong> 既定難易度・既定再生速度の取得/更新 API（旧 <code>GET·POST /settings</code>）は実装しない。クライアントが端末ローカル（Web=localStorage、iOS=UserDefaults）に保存する（<a href="../adr/008-ios-local-state-persistence.md">ADR-008</a>）。難易度は記事スター時の Podcast 生成パラメータとして扱われ、生成済み Podcast の <code>difficulty</code> は不変。
   </div>
 
   <h3>内部エンドポイント（Cloud Tasks からのみ）</h3>
@@ -416,59 +409,61 @@
   <h2 id="db">5. Firestore データモデル</h2>
 
   <h3>articles コレクション</h3>
-  <pre>// ドキュメント ID: SHA-256(url)[:20]
-{
-  "title":             string,
-  "url":               string,
-  "source":            string,       // "HackerNews" | "Zenn.dev" | ユーザー定義名
-  "content":           string,       // フェッチ済み本文（最大 10,000 文字）
-  "published_at":      timestamp,
-  "fetched_at":        timestamp,
-  "content_fetched_at": timestamp | null
-}</pre>
+  <p>ドキュメント ID は <code>SHA-256(url)[:20]</code>（URL から決定論的に生成）。</p>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+    <tr><td>title</td><td>string</td><td>記事タイトル</td></tr>
+    <tr><td>url</td><td>string</td><td>記事 URL</td></tr>
+    <tr><td>source</td><td>string</td><td>"HackerNews" / "Zenn.dev" / ユーザー定義名</td></tr>
+    <tr><td>content</td><td>string</td><td>フェッチ済み本文（最大 10,000 文字）</td></tr>
+    <tr><td>published_at</td><td>timestamp</td><td>記事公開日時</td></tr>
+    <tr><td>fetched_at</td><td>timestamp</td><td>RSS 取得日時</td></tr>
+    <tr><td>content_fetched_at</td><td>timestamp | null</td><td>本文フェッチ日時（未取得時 null）</td></tr>
+  </table>
 
   <h3>userPrefs コレクション</h3>
-  <pre>// ドキュメント ID: user_id（MVP = "default"）
-{
-  "user_id":                string,
-  "starred_article_ids":    string[],
-  "dismissed_article_ids":  string[],
-  "rss_sources": [
-    { "id": string, "name": string, "url": string, "enabled": boolean }
-  ],
-  "default_difficulty":     string,   // Difficulty enum
-  "default_playback_speed": number,   // 0.5〜2.5
-  "digest_enabled":         boolean,  // P1
-  "digest_article_count":   number    // 3〜10、P1
-}</pre>
+  <p>ドキュメント ID は <code>user_id</code>（MVP = "default"）。</p>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+    <tr><td>user_id</td><td>string</td><td>ユーザー ID</td></tr>
+    <tr><td>starred_article_ids</td><td>string[]</td><td>Star 登録済み記事 ID 一覧</td></tr>
+    <tr><td>dismissed_article_ids</td><td>string[]</td><td>Dismiss 済み記事 ID 一覧</td></tr>
+    <tr><td>rss_sources</td><td>Source[]</td><td>購読 RSS ソース一覧（name / url / enabled）</td></tr>
+    <tr><td>default_difficulty</td><td>string</td><td>デフォルト難易度（Difficulty enum）</td></tr>
+    <tr><td>default_playback_speed</td><td>number</td><td>デフォルト再生速度（0.5〜2.5）</td></tr>
+    <tr><td>digest_enabled</td><td>boolean</td><td>ダイジェスト有効フラグ（P1）</td></tr>
+    <tr><td>digest_article_count</td><td>number</td><td>ダイジェスト記事数（3〜10、P1）</td></tr>
+  </table>
 
   <h3>recommendations コレクション</h3>
-  <pre>// ドキュメント ID: {user_id}_{YYYY-MM-DD}
-{
-  "user_id":    string,
-  "date":       string,     // "2026-05-31"
-  "ranked_articles": [
-    { "article_id": string, "score": number }  // score: 0.0〜1.0
-  ],
-  "generated_at": timestamp
-}</pre>
+  <p>ドキュメント ID は <code>{user_id}_{YYYY-MM-DD}</code>。</p>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+    <tr><td>user_id</td><td>string</td><td>ユーザー ID</td></tr>
+    <tr><td>date</td><td>string</td><td>対象日（YYYY-MM-DD、例 "2026-05-31"）</td></tr>
+    <tr><td>ranked_articles</td><td>RankedArticle[]</td><td>スコア付き記事一覧</td></tr>
+    <tr><td>ranked_articles[].article_id</td><td>string</td><td>記事 ID</td></tr>
+    <tr><td>ranked_articles[].score</td><td>number</td><td>レコメンドスコア（0.0〜1.0）</td></tr>
+    <tr><td>generated_at</td><td>timestamp</td><td>レコメンド生成日時</td></tr>
+  </table>
 
   <h3>podcasts コレクション</h3>
-  <pre>// ドキュメント ID: UUID v4
-{
-  "type":                   "single" | "digest",
-  "article_ids":            string[],
-  "difficulty":             string,
-  "audio_url":              string | null,       // 完了後に設定
-  "japanese_intro_text":    string,
-  "duration_seconds":       number,
-  "status":                 "processing" | "completed" | "failed" | "partial_failed",
-  "error_message":          string | null,
-  "playback_position_seconds": number,           // 再生位置
-  "created_at":             timestamp,
-  "completed_at":           timestamp | null,
-  "user_id":                string
-}</pre>
+  <p>ドキュメント ID は UUID v4。</p>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+    <tr><td>type</td><td>"single" | "digest"</td><td>単一記事 / ダイジェスト</td></tr>
+    <tr><td>article_ids</td><td>string[]</td><td>対象記事 ID 一覧</td></tr>
+    <tr><td>difficulty</td><td>string</td><td>難易度</td></tr>
+    <tr><td>audio_url</td><td>string | null</td><td>音声 URL（完了後に設定）</td></tr>
+    <tr><td>japanese_intro_text</td><td>string</td><td>日本語イントロ文</td></tr>
+    <tr><td>duration_seconds</td><td>number</td><td>音声の長さ（秒）</td></tr>
+    <tr><td>status</td><td>"processing" | "completed" | "failed" | "partial_failed"</td><td>生成ステータス</td></tr>
+    <tr><td>error_message</td><td>string | null</td><td>エラー詳細（失敗時）</td></tr>
+    <tr><td>playback_position_seconds</td><td>number</td><td>再生位置（秒）</td></tr>
+    <tr><td>created_at</td><td>timestamp</td><td>作成日時</td></tr>
+    <tr><td>completed_at</td><td>timestamp | null</td><td>完了日時</td></tr>
+    <tr><td>user_id</td><td>string</td><td>ユーザー ID</td></tr>
+  </table>
 
   <h3>Firestore インデックス</h3>
   <table>
@@ -508,49 +503,30 @@
   <!-- ======= FILE STRUCTURE ======= -->
   <h2 id="filestructure">8. ファイル構成</h2>
 
-  <pre>backend/
-├── shared/
-│   ├── models.py              # dataclass: Article / UserPrefs / Recommendation / Podcast
-│   ├── firestore_client.py    # Firestore CRUD ヘルパー
-│   ├── storage_client.py      # Cloud Storage アップロード
-│   └── gemini_client.py       # Gemini テキスト生成 + TTS ラッパー
-├── jobs/
-│   ├── rss_fetcher/
-│   │   ├── main.py            # Cloud Run Job エントリポイント
-│   │   ├── rss_fetcher.py     # feedparser + ID 生成
-│   │   └── content_extractor.py  # trafilatura で本文抽出
-│   └── recommendation/
-│       ├── main.py
-│       └── recommender.py     # Gemini でスコア計算
-├── api/
-│   ├── main.py                # FastAPI app + API キー認証
-│   ├── routers/
-│   │   ├── feed.py            # GET /feed
-│   │   ├── articles.py        # POST /articles/{id}/star|dismiss
-│   │   ├── podcasts.py        # GET /podcasts, PATCH /position
-│   │   ├── subscriptions.py   # GET/POST/DELETE /subscriptions  ← RSS 管理
-│   │   ├── settings.py        # GET/PUT /settings
-│   │   └── internal.py        # POST /internal/generate-podcast（Cloud Tasks）
-│   ├── podcast_generator/
-│   │   ├── script_generator.py  # Gemini でスクリプト生成
-│   │   └── tts_generator.py    # Gemini TTS で音声生成・結合
-│   └── schemas.py             # Pydantic リクエスト/レスポンス
-├── tests/
-│   ├── conftest.py
-│   ├── test_models.py
-│   ├── test_rss_fetcher.py
-│   ├── test_content_extractor.py
-│   ├── test_recommender.py
-│   ├── test_script_generator.py
-│   ├── test_tts_generator.py
-│   ├── test_api_feed.py
-│   ├── test_api_articles.py
-│   ├── test_api_podcasts.py
-│   ├── test_api_subscriptions.py  ← RSS 管理テスト
-│   └── test_api_settings.py
-├── Dockerfile.jobs
-├── Dockerfile.api
-└── requirements.txt</pre>
+  <table>
+    <tr><th>ディレクトリ / ファイル</th><th>責務</th></tr>
+    <tr><td>shared/models.py</td><td>dataclass: Article / UserPrefs / Recommendation / Podcast</td></tr>
+    <tr><td>shared/firestore_client.py</td><td>Firestore CRUD ヘルパー</td></tr>
+    <tr><td>shared/storage_client.py</td><td>Cloud Storage アップロード</td></tr>
+    <tr><td>shared/gemini_client.py</td><td>Gemini テキスト生成 + TTS ラッパー</td></tr>
+    <tr><td>jobs/rss_fetcher/main.py</td><td>Cloud Run Job エントリポイント</td></tr>
+    <tr><td>jobs/rss_fetcher/rss_fetcher.py</td><td>feedparser + ID 生成</td></tr>
+    <tr><td>jobs/rss_fetcher/content_extractor.py</td><td>trafilatura で本文抽出</td></tr>
+    <tr><td>jobs/recommendation/main.py</td><td>レコメンド Job エントリポイント</td></tr>
+    <tr><td>jobs/recommendation/recommender.py</td><td>Gemini でスコア計算</td></tr>
+    <tr><td>api/main.py</td><td>FastAPI app + API キー認証</td></tr>
+    <tr><td>api/routers/feed.py</td><td>GET /feed</td></tr>
+    <tr><td>api/routers/articles.py</td><td>POST /articles/{id}/star|dismiss</td></tr>
+    <tr><td>api/routers/podcasts.py</td><td>GET /podcasts, GET /podcasts/{id}</td></tr>
+    <tr><td>api/routers/settings.py</td><td>GET/POST /settings, RSS ソース管理（/settings/sources）</td></tr>
+    <tr><td>api/routers/internal.py</td><td>POST /internal/generate-podcast（Cloud Tasks）</td></tr>
+    <tr><td>api/podcast_generator/script_generator.py</td><td>Gemini でスクリプト生成</td></tr>
+    <tr><td>api/podcast_generator/tts_generator.py</td><td>Gemini TTS で音声生成・結合</td></tr>
+    <tr><td>api/schemas.py</td><td>Pydantic リクエスト/レスポンス</td></tr>
+    <tr><td>tests/</td><td>各モジュールの単体テスト（models / rss_fetcher / content_extractor / recommender / script_generator / tts_generator / api_feed / api_articles / api_podcasts / api_settings）</td></tr>
+    <tr><td>Dockerfile.jobs / Dockerfile.api</td><td>Cloud Run Job / API 用コンテナ定義</td></tr>
+    <tr><td>requirements.txt</td><td>Python 依存パッケージ</td></tr>
+  </table>
 
 </main>
 </body>
