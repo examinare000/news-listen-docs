@@ -471,13 +471,78 @@ DELETE /settings/sources?url= クエリパラメータ
 { "sources": [{ "name": "HackerNews", "url": "https://..." }] }
 ```
 
+おすすめサイト（システム提供）参照・オンボーディングも本ルーターが担う:
+
+```
+GET  /settings/featured-sources    # システム提供のおすすめサイト一覧（order 昇順）
+GET  /settings/onboarding          # 初回オンボーディング完了状態
+POST /settings/onboarding/complete # 初回オンボーディング完了を記録
+```
+
+**GET /settings/featured-sources レスポンス** (`FeaturedSitesResponse`):
+```json
+{ "sites": [
+  { "id": "the-verge", "name": "The Verge", "url": "https://www.theverge.com/rss/index.xml",
+    "thumbnail_url": "https://www.theverge.com/favicon.ico", "description": "テクノロジー全般" }
+] }
+```
+- `featuredSites` コレクション（グローバル・ユーザー横断）を `order` 昇順で返す。表示順は配列順で表現し、`order` はレスポンスに含めない。
+
+**GET /settings/onboarding ・ POST /settings/onboarding/complete レスポンス** (`OnboardingStatusResponse`):
+```json
+{ "onboarding_completed": false }
+```
+- 状態は `UserPrefs.onboarding_completed`（単一ユーザー前提のためデプロイ単位で1値）に永続化する。
+- `complete` は `get_user_prefs → model_copy(update={onboarding_completed: True}) → save_user_prefs` の全置換更新（`add_source` と同流儀。required な `default_difficulty` も保持される）。
+
 #### エラー・エッジケース
 
 | ケース | レスポンス |
 |--------|-----------|
-| POST — 既存 URL と重複 | `HTTP 409 Conflict` |
-| DELETE — 存在しない URL | `HTTP 404 Not Found` |
-| GET — RSS ソースが0件 | `sources=[]` の空配列（200 OK） |
+| POST /settings/sources — 既存 URL と重複 | `HTTP 409 Conflict` |
+| DELETE /settings/sources — 存在しない URL | `HTTP 404 Not Found` |
+| GET /settings/sources — RSS ソースが0件 | `sources=[]` の空配列（200 OK） |
+| GET /settings/featured-sources — 0件 | `sites=[]` の空配列（200 OK） |
+| GET /settings/onboarding — 既存値なし | `onboarding_completed=false`（default） |
+
+---
+
+### 4.5.1 Admin ルーター (`api/routers/admin.py`)
+
+おすすめサイト（`featuredSites`）の管理用 CRUD。**運用者専用**で、通常クライアント（Web/iOS）からは利用しない。
+
+```
+GET    /admin/featured-sites               # 一覧
+POST   /admin/featured-sites               # 作成（id は name から slug 化）
+PUT    /admin/featured-sites/{site_id}     # 全置換更新
+DELETE /admin/featured-sites/{site_id}     # 削除
+```
+
+**POST/PUT リクエスト** (`FeaturedSiteRequest`):
+```json
+{ "name": "Wired (Technology)", "url": "https://www.wired.com/feed/...",
+  "thumbnail_url": "https://www.wired.com/favicon.ico", "description": "テクノロジー", "order": 3 }
+```
+- `url` / `thumbnail_url` は `HttpUrl`（SSRF 軽減、`RssSourceRequest` と同方針）。
+- doc id は `slugify(name)`（例: `"Wired (Technology)"` → `wired-technology`）。
+
+#### 認証
+
+専用 admin ロールは持たず、他エンドポイントと同じ共有 `X-API-Key`（`verify_api_key`）で保護する。
+デプロイ単位の単一ユーザー前提（ADR-007）のため許容。将来必要なら `ADMIN_API_KEY` を分離する（ADR-012）。
+
+#### エラー・エッジケース
+
+| ケース | レスポンス |
+|--------|-----------|
+| POST — 既存 slug と重複 | `HTTP 409 Conflict` |
+| PUT/DELETE — 存在しない site_id | `HTTP 404 Not Found` |
+| 全エンドポイント — `X-API-Key` 不正/欠落 | `HTTP 401 Unauthorized` |
+
+#### 初期データ投入
+
+`backend/scripts/seed_featured_sites.py` で `FirestoreClient.save_featured_site` を直接呼び、デフォルト7サイト
+（The Verge / TechCrunch / Engadget / Wired (Technology) / Mashable / HackerNews / VentureBeat）を冪等投入する。
 
 ---
 
@@ -507,6 +572,34 @@ class RssSourcesResponse(BaseModel):
 
 class ActionResponse(BaseModel):
     status: str; article_id: str
+
+# おすすめサイト / オンボーディング
+class FeaturedSiteResponse(BaseModel):
+    id: str; name: str; url: str
+    thumbnail_url: str | None = None; description: str | None = None
+
+class FeaturedSitesResponse(BaseModel):
+    sites: list[FeaturedSiteResponse]
+
+class FeaturedSiteRequest(BaseModel):           # 管理用（admin）
+    name: str; url: HttpUrl
+    thumbnail_url: HttpUrl | None = None
+    description: str | None = None; order: int = 0
+
+class OnboardingStatusResponse(BaseModel):
+    onboarding_completed: bool
+```
+
+**データモデル追記** (`shared/models.py`):
+```python
+class FeaturedSite(BaseModel):                  # Firestore: featuredSites/{id}
+    id: str; name: str; url: str
+    thumbnail_url: str | None = None
+    description: str | None = None; order: int = 0
+
+class UserPrefs(BaseModel):
+    ...
+    onboarding_completed: bool = False          # 既存ドキュメントは default で後方互換
 ```
 
 ---
