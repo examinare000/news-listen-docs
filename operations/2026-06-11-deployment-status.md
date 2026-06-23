@@ -18,6 +18,7 @@
 - **Star → Podcast 即時生成は未実装**: README/spec は Cloud Tasks worker による即時生成を記述しているが、コードに Cloud Tasks 連携は存在しない。実体は `podcast-generator` ジョブによる**バッチ処理**（Cloud Scheduler または手動実行）。Star 後にジョブ実行が必要。
 - **初期 RSS ソースが空**: `UserPrefs.rss_sources` は空リスト初期値。デプロイ直後は記事ゼロ。Settings タブまたは `POST /settings/sources` でソース追加が必須。
 - **署名付き URL の修正済み**: Cloud Run の SA 認証情報には秘密鍵が無く、引数なしの `generate_signed_url()` は失敗する。IAM signBlob 方式（`service_account_email` + `access_token`）に修正済み。SA 自身への `roles/iam.serviceAccountTokenCreator` と `iamcredentials.googleapis.com` が前提（`infra/setup.sh` に反映済み）。
+- **（2026-06-23 追記）利用者認証が必須に**: セッションベース認証・マルチユーザー管理を導入済み（[ADR-013](../adr/013-session-auth-and-user-management.md)）。デプロイ後は **`backend/scripts/seed_users.py` で初期ユーザー（admin / user）を投入**しないとログインできない。初期パスワードは環境変数（`INITIAL_ADMIN_USERNAME`/`INITIAL_ADMIN_PASS` ほか）で与え、**初回ログイン後に必ず変更**する。`SESSION_COOKIE_SECURE` はローカル（http）では `false`、本番（https）では `true`。`USER_ID` 固定によるフィード参照はログインセッション由来へ変更された（旧 PoC で `USER_ID` を流用していた場合は `seed_users.py` がその値を初期 user の `user_id` に引き継ぐ）。
 
 ## 3. Phase 進捗
 

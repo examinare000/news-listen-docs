@@ -1365,6 +1365,7 @@ html[data-theme="light"] .theme-name-light { display: inline; }
 </head>
 <body>
 
+<!-- news-listen Web App UI — 最終更新 2026-06-23・認証(ADR-013)反映 -->
 <div class="app-shell" id="app">
 
   <!-- ── Sidebar ─────────────────────────────────────── -->
@@ -1415,6 +1416,15 @@ html[data-theme="light"] .theme-name-light { display: inline; }
         </svg>
         <span>設定</span>
       </div>
+
+      <!-- admin ロール時のみ表示（自己ロックアウト防止の対象画面） -->
+      <div class="nav-item" onclick="switchView('admin-users')" title="管理者のみ表示">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <span>ユーザー管理</span>
+        <span class="badge badge-hard" style="margin-left:auto;font-size:9px;padding:2px 6px">admin</span>
+      </div>
     </nav>
 
     <div class="sidebar-footer">
@@ -1422,6 +1432,10 @@ html[data-theme="light"] .theme-name-light { display: inline; }
         <div class="status-dot"></div>
         <span>バッチ: 正常稼働中</span>
       </div>
+      <!-- ショーケース用：ログインモーダルのプレビュー -->
+      <button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:11px;margin-bottom:12px" onclick="document.getElementById('login-modal').style.display='flex'">
+        ログイン画面をプレビュー
+      </button>
       <button class="theme-toggle" onclick="toggleTheme()" title="ライト/ダークモード切り替え">
         <span class="theme-toggle-track">
           <span class="theme-toggle-thumb"></span>
@@ -1844,6 +1858,56 @@ html[data-theme="light"] .theme-name-light { display: inline; }
 
       <div class="content-area" style="max-width:600px">
 
+        <!-- アカウント管理（AccountSection / ADR-013 セッション認証） -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div class="settings-section-icon" style="background:var(--teal-glow)">👤</div>
+            <div class="settings-section-title">アカウント</div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">ユーザーID</div>
+              <div class="settings-row-desc">ログインに使用する username（変更不可）</div>
+            </div>
+            <span style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text-secondary)">rio</span>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">表示名</div>
+              <div class="settings-row-desc">アプリ内で表示される名前</div>
+            </div>
+          </div>
+          <div style="padding:0 20px 16px">
+            <input type="text" class="form-input" value="Ryosuke" placeholder="表示名">
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">パスワード変更</div>
+              <div class="settings-row-desc">現在のパスワードと新しいパスワードを入力</div>
+            </div>
+          </div>
+          <div style="padding:0 20px 16px;display:flex;flex-direction:column;gap:8px">
+            <input type="password" class="form-input" placeholder="現在のパスワード">
+            <input type="password" class="form-input" placeholder="新しいパスワード">
+          </div>
+          <div class="settings-row" style="padding-top:16px;padding-bottom:16px">
+            <button class="btn btn-ghost" onclick="showToast('パスワードを変更しました', 'success')">
+              パスワードを変更
+            </button>
+            <button class="btn btn-ghost" style="color:var(--red);border-color:rgba(224,92,92,.3)" onclick="showToast('ログアウトしました', 'info')">
+              ログアウト
+            </button>
+          </div>
+          <!-- admin ロール時のみ表示：ユーザー管理への導線 -->
+          <div class="settings-row" style="background:rgba(155,124,248,.05)">
+            <div>
+              <div class="settings-row-label">ユーザー管理 <span class="badge badge-hard" style="font-size:9px;padding:1px 5px;margin-left:4px">admin</span></div>
+              <div class="settings-row-desc">管理者のみ。/admin/users でユーザーを管理</div>
+            </div>
+            <button class="btn btn-ghost" onclick="switchView('admin-users')">開く</button>
+          </div>
+        </div>
+
         <div class="settings-section">
           <div class="settings-section-header">
             <div class="settings-section-icon" style="background:var(--amber-dim)">🎙️</div>
@@ -1904,6 +1968,10 @@ html[data-theme="light"] .theme-name-light { display: inline; }
             <span style="color:var(--amber);font-size:14px;line-height:1">⚠</span>
             API キーは localStorage に保存されます。XSS への注意が必要です。Phase 2 で httpOnly Cookie へ移行予定。
           </div>
+          <div style="padding:12px 20px;background:rgba(56,190,201,.06);border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);display:flex;gap:8px;align-items:flex-start">
+            <span style="color:var(--teal);font-size:14px;line-height:1">🔑</span>
+            ユーザー認証はセッション方式（httpOnly Cookie <code style="font-family:'DM Mono',monospace">nl_session</code>）。ログイン状態は <code style="font-family:'DM Mono',monospace">GET /auth/me</code> で判定します（ADR-013）。
+          </div>
         </div>
 
         <div class="settings-section">
@@ -1925,10 +1993,112 @@ html[data-theme="light"] .theme-name-light { display: inline; }
           </div>
         </div>
 
+        <!-- エントリーフロー補足（ADR-013） -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div class="settings-section-icon" style="background:rgba(155,124,248,.08)">🚪</div>
+            <div class="settings-section-title">エントリーフロー</div>
+          </div>
+          <div style="padding:14px 20px;font-size:12px;color:var(--text-secondary);line-height:1.8">
+            初回起動時の順序：<br>
+            <strong>① API 設定</strong>（SetupModal）→ <strong>② ログイン</strong>（未認証時のみ LoginModal）→ <strong>③ オンボーディング</strong> → <strong>④ フィード表示</strong><br>
+            <span style="color:var(--text-muted)">未認証（<code style="font-family:'DM Mono',monospace">GET /auth/me</code> が未ログインを返す）場合、エントリーゲートでログインモーダルが表示されます。</span>
+          </div>
+        </div>
+
         <div style="text-align:right;padding-top:4px">
           <button class="btn btn-primary" onclick="showToast('設定を保存しました', 'success')">
             変更を保存
           </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ADMIN USERS VIEW（/admin/users・admin 限定 / ADR-013） -->
+    <div class="view" id="view-admin-users">
+      <div class="page-header">
+        <div>
+          <div class="page-title">ユーザー管理</div>
+          <div class="page-subtitle">管理者のみ — アカウントの作成・ロール変更・削除（/admin/users）</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-primary" style="font-size:12px" onclick="showToast('新規ユーザーフォームを開きました', 'info')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新規ユーザー
+          </button>
+        </div>
+      </div>
+
+      <div class="content-area" style="max-width:720px">
+
+        <!-- 新規ユーザー作成（AccountSection と同じ作法のフォーム） -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div class="settings-section-icon" style="background:var(--teal-glow)">➕</div>
+            <div class="settings-section-title">新規ユーザーを作成</div>
+          </div>
+          <div style="padding:16px 20px;display:flex;flex-direction:column;gap:8px">
+            <input type="text" class="form-input" placeholder="ユーザーID（username）">
+            <input type="text" class="form-input" placeholder="表示名">
+            <input type="password" class="form-input" placeholder="初期パスワード">
+            <div style="display:flex;gap:8px;align-items:center">
+              <select class="select-input" style="flex:1">
+                <option selected>user</option>
+                <option>admin</option>
+              </select>
+              <button class="btn btn-primary" onclick="showToast('ユーザーを作成しました', 'success')">作成</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ユーザー一覧 -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <div class="settings-section-icon" style="background:rgba(155,124,248,.08)">👥</div>
+            <div class="settings-section-title">ユーザー一覧</div>
+          </div>
+
+          <!-- 自分自身の行：ロール変更・削除ボタンを表示しない（自己ロックアウト防止） -->
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">rio <span class="badge badge-hard" style="font-size:9px;padding:1px 5px;margin-left:4px">admin</span> <span class="badge badge-medium" style="font-size:9px;padding:1px 5px">自分</span></div>
+              <div class="settings-row-desc">Ryosuke</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="showToast('パスワードをリセットしました', 'success')">PWリセット</button>
+              <!-- 自分の行にはロール変更・削除ボタンを置かない -->
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">tanaka <span class="badge badge-completed" style="font-size:9px;padding:1px 5px;margin-left:4px">user</span></div>
+              <div class="settings-row-desc">田中 太郎</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="showToast('admin に変更しました', 'success')">admin に変更</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="showToast('パスワードをリセットしました', 'success')">PWリセット</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:rgba(224,92,92,.3)" onclick="showToast('ユーザーを削除しました', 'info')">削除</button>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">suzuki <span class="badge badge-hard" style="font-size:9px;padding:1px 5px;margin-left:4px">admin</span></div>
+              <div class="settings-row-desc">鈴木 花子</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="showToast('user に変更しました', 'success')">user に変更</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="showToast('パスワードをリセットしました', 'success')">PWリセット</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:rgba(224,92,92,.3)" onclick="showToast('ユーザーを削除しました', 'info')">削除</button>
+            </div>
+          </div>
+
+          <div style="padding:12px 20px;background:rgba(155,124,248,.06);border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);display:flex;gap:8px;align-items:flex-start">
+            <span style="color:var(--purple);font-size:14px;line-height:1">🔒</span>
+            自己ロックアウト防止：ログイン中の自分自身の行には「ロール変更」「削除」を表示しません。
+          </div>
         </div>
 
       </div>
@@ -1997,6 +2167,45 @@ html[data-theme="light"] .theme-name-light { display: inline; }
 <!-- ── Toast Container ──────────────────────────── -->
 <div class="toast-container" id="toast-container"></div>
 
+<!-- ── Login Modal（LoginModal / ADR-013 セッション認証） ─────────── -->
+<!-- 未認証時にエントリーゲートで表示。GET /auth/me が未ログインを返すと出現 -->
+<div class="modal-backdrop" id="login-modal" style="display:none">
+  <div class="modal-box" style="width:380px">
+    <div class="modal-logo">
+      <div class="logo-mark">
+        <div class="logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M9 18V5l12-2v13"/>
+            <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </div>
+        <span class="logo-text">Audio<span>News</span></span>
+      </div>
+    </div>
+    <div class="modal-title">ログイン</div>
+    <div class="modal-desc">ユーザーIDとパスワードでサインインしてください。</div>
+
+    <!-- 失敗時のみ表示する汎用エラー（IDとPWのどちらが誤りかは明かさない） -->
+    <div style="padding:10px 12px;margin-bottom:16px;background:rgba(224,92,92,.08);border:1px solid rgba(224,92,92,.25);border-radius:var(--radius-sm);font-size:12px;color:var(--red);display:flex;gap:8px;align-items:center">
+      <span style="font-size:14px;line-height:1">⚠</span>
+      ユーザーIDまたはパスワードが正しくありません
+    </div>
+
+    <div class="form-field">
+      <label class="form-label">ユーザーID</label>
+      <input type="text" class="form-input" placeholder="username" autocomplete="username">
+    </div>
+    <div class="form-field">
+      <label class="form-label">パスワード</label>
+      <input type="password" class="form-input" placeholder="••••••••" autocomplete="current-password">
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="document.getElementById('login-modal').style.display='none'">
+      ログイン
+    </button>
+  </div>
+</div>
+
 <!-- ── CSS for spin ──────────────────────────────── -->
 <style>
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -2020,7 +2229,7 @@ function switchView(name) {
   if (view) view.classList.add('active');
 
   const navItems = document.querySelectorAll('.nav-item');
-  const order = ['feed','podcast','subscriptions','settings'];
+  const order = ['feed','podcast','subscriptions','settings','admin-users'];
   const idx = order.indexOf(name);
   if (navItems[idx]) navItems[idx].classList.add('active');
 }

@@ -109,6 +109,7 @@
     <div class="badge">作成日 <span>2026-05-31</span></div>
     <div class="badge">ステータス <span>設計フェーズ</span></div>
     <div class="badge">想定ユーザー <span>1〜5人</span></div>
+    <div class="badge">最終更新 <span>2026-06-23</span></div>
   </div>
 
   <!-- ======= SYSTEM OVERVIEW ======= -->
@@ -136,8 +137,8 @@
     <!-- arrows clients → API -->
     <line x1="206" y1="92" x2="330" y2="148" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
     <line x1="614" y1="92" x2="490" y2="148" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#ah)"/>
-    <text x="245" y="130" fill="#4fc3f7" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">HTTPS + X-API-Key</text>
-    <text x="575" y="130" fill="#4fc3f7" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">HTTPS + X-API-Key</text>
+    <text x="245" y="130" fill="#4fc3f7" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">HTTPS + X-API-Key + Session(Cookie)</text>
+    <text x="575" y="130" fill="#4fc3f7" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">HTTPS + X-API-Key + Session(Bearer)</text>
     <!-- API layer -->
     <text x="16" y="162" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" letter-spacing="1.5">API</text>
     <rect x="256" y="168" width="308" height="62" rx="8" fill="#0f1e28" stroke="#4fc3f7" stroke-width="2"/>
@@ -253,8 +254,8 @@
   </div>
 
   <div class="decision">
-    <strong>ユーザー識別は固定値 "default"（MVP）</strong><br>
-    個人利用前提のため Firebase Auth を使わず固定 user_id で実装。Phase 2 以降でマルチユーザー対応。
+    <strong>マルチユーザー化：独自セッション認証で解決済み（ADR-013）</strong><br>
+    当初は固定値 <code>default</code> で個人利用を想定していたが、<strong>解決済み</strong>。Firebase Auth は見送り、既存スタック内の独自セッション認証でマルチユーザー化した。ログインユーザーの <code>user_id</code>（<code>users</code> コレクション）で識別し、username + パスワードでログイン、<code>admin</code> / <code>user</code> ロールを持つ。パスワードは bcrypt でハッシュ化。トークンは不透明値とし、サーバ側 Session（Firestore）で管理して即時失効可能。生トークンは保存せず SHA-256 ハッシュで保持する。Web は httpOnly Cookie <code>nl_session</code>、iOS は <code>Authorization: Bearer</code> + Keychain で受け渡す。設計は ADR-013。
   </div>
 
   <div class="decision">
@@ -263,8 +264,13 @@
   </div>
 
   <div class="decision">
-    <strong>API キーによる認証（個人利用向けシンプル認証）</strong><br>
-    全リクエストに <code>X-API-Key</code> ヘッダーを付与。キーは Secret Manager で管理し、クライアント側（Web: localStorage、iOS: UserDefaults）に保存する。
+    <strong>API キー（基盤）＋セッション認証（利用者）の二層</strong><br>
+    基盤の共有 <code>X-API-Key</code> ヘッダーは据え置き（Secret Manager で管理）。その上で、利用者は username + パスワードによるセッション認証（ADR-013）でログインし、各リクエストは Web が httpOnly Cookie <code>nl_session</code>、iOS が <code>Authorization: Bearer</code> でセッショントークンを提示する。
+  </div>
+
+  <div class="decision">
+    <strong>admin 限定のユーザー管理とセッション安全性（ADR-013）</strong><br>
+    <code>admin</code> ロールのみがユーザーの作成・ロール変更・パスワードリセット・削除を行える。最後の admin を保護（降格・削除は 409 で拒否）し、自己ロックアウトも防止する。降格・パスワードリセット・削除の各操作では対象ユーザーの既存セッションを失効させる。
   </div>
 
   <!-- ======= SCOPE ======= -->
@@ -285,6 +291,7 @@
         <li>Settings（難易度・速度デフォルト）</li>
         <li>Cloud Tasks 非同期生成</li>
         <li><strong>Web アプリ（Next.js）先行リリース</strong></li>
+        <li>セッション認証・マルチユーザー管理 ✓ 実装済み（ADR-013）</li>
       </ul>
     </div>
     <div class="scope-card scope-p1">
@@ -295,7 +302,7 @@
         <li>OpenAI TTS への移行（話者 A/B）</li>
         <li>オフライン再生</li>
         <li>Push 通知（生成完了）</li>
-        <li>Firebase Auth マルチユーザー</li>
+        <li>マルチユーザー化 ✓ 実装済み（独自セッション方式・ADR-013）</li>
         <li>ストレージ管理画面</li>
       </ul>
     </div>

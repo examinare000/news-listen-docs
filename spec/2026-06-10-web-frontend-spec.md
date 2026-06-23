@@ -38,7 +38,21 @@
 
 ## 3. バックエンド API 契約（実コードからの転記 — 検証済み）
 
-全エンドポイント（`/health` 以外）は `X-API-Key` ヘッダー必須。キー不一致・欠落は `401 {"detail": "Invalid or missing API key"}`（`backend/api/main.py:22-30`）。
+全エンドポイント（`/health` 以外）は基盤の `X-API-Key` ヘッダー必須。キー不一致・欠落は `401 {"detail": "Invalid or missing API key"}`（`backend/api/main.py:22-30`）。
+
+**利用者認証（セッション・[ADR-013](../adr/013-session-auth-and-user-management.md)）**: `/auth/login` でセッションを開始し、以降は httpOnly Cookie `nl_session` で認証する（BFF が Cookie を中継・§6）。`/auth/me` 系・`/admin/users` 系は有効セッション必須、`/admin/users` 系はさらに admin ロール必須。
+
+| エンドポイント | 正常レスポンス | エラー |
+|---|---|---|
+| `POST /auth/login` | `{"token", "user": {username, role, display_name}}` + `Set-Cookie: nl_session` | 401（ユーザー存在を伏せた汎用文言） |
+| `POST /auth/logout` | `{"status": "ok"}`。冪等 | なし |
+| `GET /auth/me` | `AuthUser` | 401（未ログイン/失効） |
+| `PATCH /auth/me` | 更新後 `AuthUser`（`display_name`） | 401 / 422 |
+| `POST /auth/password` | `{"status": "ok"}`（`current_password` 検証必須） | 401 / 400 |
+| `GET /admin/users` | `{"users": AuthUser[]}` | 401 / 403（非 admin） |
+| `POST /admin/users` | 作成した `AuthUser` | 409（重複）/ 403 |
+| `PATCH /admin/users/{username}` | 更新後 `AuthUser`（role / new_password / display_name） | 404 / 409（最後の admin 降格）/ 403 |
+| `DELETE /admin/users/{username}` | `{"status", "username"}` | 404 / 409（最後の admin 削除）/ 403 |
 
 | エンドポイント | 正常レスポンス | エラー |
 |---|---|---|
@@ -70,6 +84,11 @@ type FeedResponse = { articles: Article[]; date: string };
 type PodcastListResponse = { podcasts: Podcast[] };
 type RssSourcesResponse = { sources: RssSource[] };
 type ActionResponse = { status: string; article_id: string };
+// 認証（ADR-013）
+type UserRole = 'admin' | 'user';
+type AuthUser = { username: string; role: UserRole; display_name: string };
+type LoginResponse = { token: string; user: AuthUser };
+type UserListResponse = { users: AuthUser[] };
 ```
 
 ## 5. API クライアント（`web/lib/api.ts`）
@@ -79,6 +98,8 @@ type ActionResponse = { status: string; article_id: string };
 `createApiClient(config: { baseUrl: string; apiKey: string })` で生成。**モジュールロード時に localStorage を読まない**（SSR 安全性・テスト容易性）。公開関数:
 
 `getFeed()` / `starArticle(id)` / `dismissArticle(id)` / `getPodcasts()` / `getPodcast(id)` / `getSources()` / `addSource(name, url)` / `deleteSource(url)` / `checkHealth()`
+
+認証（§3・ADR-013）: `login(username, password)` / `logout()` / `getMe()` / `updateProfile(displayName)` / `changePassword(current, next)`、管理用: `listUsers()` / `createUser({username, password, display_name?, role?})` / `updateUser(username, {role?, new_password?, display_name?})` / `deleteUser(username)`。いずれも BFF 経由でセッション Cookie を自動送受信する（クライアントはトークンを保持しない）。
 
 すべて同一オリジンの `/api/backend/{path}` へ fetch し、ヘッダーに `X-API-Key`（ユーザー入力キー）と `X-Backend-Base-Url`（ユーザー入力ベース URL）を付与する。`deleteSource` は `url` を `encodeURIComponent` してクエリに載せる（`&`・日本語を含む URL でも壊れないこと）。
 
@@ -103,6 +124,7 @@ class ApiError extends Error { status: number; detail: string }
 |---|---|
 | 入力 | 任意のパス・クエリ・ボディ・メソッド（GET/POST/PATCH/DELETE を export） |
 | 転送 | `X-Backend-Base-Url` の値 + path + クエリ文字列へ転送。`X-API-Key`・`Content-Type`・ボディ・メソッドを引き継ぐ |
+| セッション Cookie 中継（ADR-013） | リクエストの `Cookie` ヘッダをバックエンドへ転送し、バックエンドの `Set-Cookie` をレスポンスへ通す（`nl_session` の発行・失効を中継）。バックエンドは Domain 属性を付けず、Cookie は Web アプリのオリジンにバインドされる。httpOnly/SameSite 属性は維持 |
 | 出力 | バックエンドのステータスコードとボディを**加工せず**素通し（エラー解釈はクライアント `ApiError` の責務） |
 | 異常系: ヘッダー欠落 | `X-Backend-Base-Url` がない → **400** |
 | 異常系: 不正スキーム | `http://`・`https://` 以外（`ftp://`、`file://`、相対等）→ **400**（SSRF 緩和） |
@@ -121,6 +143,18 @@ class ApiError extends Error { status: number; detail: string }
 - localStorage 復元は `useEffect` 内（マウント後）で行い、復元前は `isConfigured: false` のまま（hydration 安全）
 - 一覧データ（articles / podcasts / sources）・isLoading・error は**各ページのローカル state**。Context に入れない
 - order.md タスク 2 の「アクティブ画面の Context 管理」は**実装しない**。画面状態は URL（App Router）が正であり二重管理は状態不整合の温床
+
+**認証状態（`web/contexts/AuthContext.tsx`・ADR-013）**: API 設定とは別 Context で管理する。トークンは httpOnly Cookie が保持し JS からは読めないため、ログイン可否は `GET /auth/me` の成否で判定する。
+
+| 状態 | 内容 |
+|---|---|
+| `status` | `'unknown'`（/auth/me 解決前）/ `'authenticated'` / `'unauthenticated'` |
+| `user` | `AuthUser \| null`（ログイン中ユーザー） |
+| `login(username, password)` | 失敗時 `ApiError` を throw |
+| `logout()` | ベストエフォート |
+| `refreshMe()` | `/auth/me` で状態を再解決 |
+
+API 設定済み（`isConfigured` かつ復元完了）になった時点で `refreshMe()` を一度呼び、初期状態を解決する。`useAuth()` を Provider 外で呼ぶと throw。
 
 ## 8. ローカル永続化（`web/hooks/useLocalStorage.ts` + `web/lib/config.ts`）
 
@@ -153,15 +187,19 @@ class ApiError extends Error { status: number; detail: string }
 
 ## 10. 画面仕様
 
-ルーティング: `/`（ゲート）、`/feed`、`/podcast`、`/podcast/[id]`、`/subscriptions`、`/settings` の 4 画面 + 詳細 + エントリー。order.md の「3 画面」は誤り（Subscriptions を含む）。NavigationBar は左固定サイドバー（`aside.sidebar`）で、ロゴ + アイコン付き 4 リンク（フィード / ポッドキャスト / 購読管理 / 設定）。現在パスに `aria-current="page"`。幅 900px 以下ではアイコンのみに縮小（CSS メディアクエリ）。サイドバーフッターに ThemeToggle（§10.6）を配置。各ページは sticky な `.page-header`（タイトル + サブタイトル + アクション）+ `.content-area` の 2 層構造（2026-06-12 改訂）。
+ルーティング: `/`（ゲート）、`/feed`、`/podcast`、`/podcast/[id]`、`/subscriptions`、`/settings` の 4 画面 + 詳細 + エントリー、加えて admin 限定の `/admin/users`（§10.5.1・ADR-013）。order.md の「3 画面」は誤り（Subscriptions を含む）。NavigationBar は左固定サイドバー（`aside.sidebar`）で、ロゴ + アイコン付き 4 リンク（フィード / ポッドキャスト / 購読管理 / 設定）。現在パスに `aria-current="page"`。幅 900px 以下ではアイコンのみに縮小（CSS メディアクエリ）。サイドバーフッターに ThemeToggle（§10.6）を配置。各ページは sticky な `.page-header`（タイトル + サブタイトル + アクション）+ `.content-area` の 2 層構造（2026-06-12 改訂）。
 
-### 10.1 `/`（エントリーゲート + SetupModal）
+### 10.1 `/`（エントリーゲート + SetupModal + LoginModal）
 
-| 状態 | 挙動 |
-|---|---|
-| 設定復元前 | スケルトン表示（チラつき防止） |
-| 設定済み | `/feed` へ `router.replace` |
-| 未設定 | SetupModal を表示。閉じて他画面を使うことはできない |
+ゲートは次の順で判定する（先に成立した段で停止）:
+
+| 順 | 条件 | 挙動 |
+|---|---|---|
+| 1 | 設定復元前（`isRestoring`） | スケルトン表示（チラつき防止） |
+| 2 | API 未設定（`!isConfigured`） | SetupModal を表示。閉じて他画面を使うことはできない |
+| 3 | 未ログイン（`authStatus === 'unauthenticated'`、ADR-013） | **LoginModal**（`components/ui/LoginModal.tsx`）を表示。username + パスワードでログイン。失敗は汎用文言 |
+| 4 | オンボーディング未完了（`onboarding_completed === false`、ADR-012） | OnboardingSourcesModal を表示 |
+| 5 | 上記すべて充足 | `/feed` へ `router.replace` |
 
 SetupModal バリデーション（クライアント側・インラインエラー表示・保存不可）:
 - baseUrl: 空 → 不可。`https://` で始まらない → 不可
@@ -244,6 +282,13 @@ AddSubscriptionForm の異常系:
 - デフォルト再生速度セレクタ（8 段階定数を import）→ localStorage 保存 + AppContext 反映
 - 接続テストボタン（SetupModal とロジック共通化）
 - 難易度設定 UI は**置かない**。「Podcast の難易度はサーバー側設定で管理されています」の説明文を表示
+- **アカウント管理（`components/ui/AccountSection.tsx`・ADR-013）**: 表示名編集（`updateProfile`）・パスワード変更（`changePassword`、現在 PW 検証）・ログアウト（`logout`）。`user.role === 'admin'` のときのみ `/admin/users` への導線を表示
+
+### 10.5.1 `/admin/users`（ユーザー管理・admin 限定）
+
+- `useAuth().user?.role === 'admin'` のときのみ機能。非 admin には 403 相当のメッセージを表示
+- ユーザー一覧（`listUsers`）・作成（`createUser`）・ロール変更/PW リセット（`updateUser`）・削除（`deleteUser`）
+- **自己ロックアウト防止**: 自分自身（`u.username === user?.username`）の行にはロール変更・削除ボタンを出さない。最後の admin の降格・削除はサーバ側が `409` で拒否（二重防御）
 
 ### 10.6 汎用 UI 部品
 
@@ -281,8 +326,9 @@ AddSubscriptionForm の異常系:
 
 1. BFF プロキシ: `X-Backend-Base-Url` の `http(s)://` スキーム検証（SSRF 緩和）
 2. API キー・署名付き URL をログ・コミットに含めない
-3. apiKey 入力は `type="password"`、設定画面で値を表示しない
+3. apiKey 入力・パスワード入力は `type="password"`、設定画面で値を表示しない
 4. 外部リンクは `rel="noopener noreferrer"`
+5. セッション（ADR-013）: トークンは httpOnly Cookie が保持し JS から読まない（XSS 緩和）。クライアントはトークンを localStorage 等に保存しない。ログイン失敗はユーザー存在を伏せた汎用文言で表示
 
 ## 14. 受け入れ基準
 
