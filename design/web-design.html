@@ -62,6 +62,7 @@
     <div class="nav-doc">Webフロントエンド設計</div>
     <a href="#overview">概要・技術スタック</a>
     <a href="#routing">ルーティング・画面一覧</a>
+    <a href="#auth">認証・ユーザー管理 (ADR-013)</a>
     <a href="#screens">各画面の設計</a>
     <a href="#components">共通コンポーネント</a>
     <a href="#state">状態管理</a>
@@ -85,6 +86,8 @@
     <div class="badge">言語 <span>TypeScript</span></div>
     <div class="badge">スタイル <span>Tailwind CSS</span></div>
     <div class="badge">ホスティング <span>Cloud Run (GCP)</span></div>
+    <div class="badge">認証 <span>セッション (ADR-013)</span></div>
+    <div class="badge">最終更新 <span>2026-06-23（認証 ADR-013 反映）</span></div>
   </div>
 
   <!-- ======= OVERVIEW ======= -->
@@ -155,8 +158,72 @@
 
   <p>ナビゲーションバーは全ページ共通（Feed / Podcast / Subscriptions / Settings）。画面下部には AudioPlayerBar を常時表示し、再生中エピソードを制御できる。</p>
 
+  <!-- ======= AUTH ======= -->
+  <h2 id="auth">3. 認証・ユーザー管理（ADR-013）</h2>
+
+  <p>
+    Web はサーバーサイドセッション方式を採用する。ログイン成功時にバックエンドが <code>httpOnly</code> Cookie <code>nl_session</code> を発行し、以降の認証付きリクエストはこの Cookie で行う。トークンは JavaScript から読めないため、ブラウザ側はトークンを保持・保存しない（localStorage 等を一切使わない）。ログイン済みかどうかは <code>GET /auth/me</code> の成否で判定する。
+  </p>
+  <div class="note">
+    従来の API キー（<code>X-API-Key</code>）はバックエンド接続のためのオリジン制約として引き続き用いるが、<strong>利用者の認証はセッション Cookie で行う</strong>。すなわちプロキシは API キーを付与しつつ、利用者の <code>nl_session</code> Cookie を中継する二層構成となる。
+  </div>
+
+  <h3>AuthContext（API 設定の AppContext とは別 Context）</h3>
+  <p>
+    認証状態は <code>web/contexts/AuthContext.tsx</code> が保持する。API 接続設定を扱う <code>AppContext</code> とは独立した Context で、API 設定の復元完了後に <code>refreshMe()</code> を一度呼んで状態を解決する。<code>useAuth()</code> を Provider の外で呼ぶと例外を throw する。
+  </p>
+  <table>
+    <tr><th>フィールド / メソッド</th><th>説明</th></tr>
+    <tr><td>status</td><td><code>unknown</code>（解決前）/ <code>authenticated</code> / <code>unauthenticated</code> の 3 状態</td></tr>
+    <tr><td>user</td><td>ログイン中ユーザー（<code>AuthUser</code>）。未認証時は <code>null</code></td></tr>
+    <tr><td>login(username, password)</td><td>ログイン実行。失敗時は <code>ApiError</code> を throw する</td></tr>
+    <tr><td>logout()</td><td>ログアウト（ベストエフォート。失敗してもクライアント状態は未認証へ）</td></tr>
+    <tr><td>refreshMe()</td><td><code>/auth/me</code> で認証状態を再解決する</td></tr>
+  </table>
+
+  <h3>BFF プロキシでの Cookie 中継</h3>
+  <p>
+    BFF プロキシ（<code>web/app/api/backend/[...path]/route.ts</code>）は既存の転送に加え、リクエストの <code>Cookie</code> ヘッダをバックエンドへ転送し、バックエンドの <code>Set-Cookie</code> をレスポンスへ通す。これにより <code>nl_session</code> の発行・失効を中継する。バックエンドは Cookie に <code>Domain</code> 属性を付けず、Cookie は Web オリジンにバインドされる。<code>httpOnly</code> / <code>SameSite</code> 属性は維持される。
+  </p>
+
+  <h3>認証関連 API 契約（バックエンド）</h3>
+  <table>
+    <tr><th>メソッド</th><th>パス</th><th>用途・契約</th></tr>
+    <tr><td>POST</td><td>/auth/login</td><td><code>{token, user}</code> を返し <code>Set-Cookie: nl_session</code> を発行。401 はユーザー存在を伏せた汎用文言</td></tr>
+    <tr><td>POST</td><td>/auth/logout</td><td>セッション失効。冪等</td></tr>
+    <tr><td>GET</td><td>/auth/me</td><td>現在のログインユーザーを返す（未認証時はエラー）</td></tr>
+    <tr><td>PATCH</td><td>/auth/me</td><td>表示名（<code>display_name</code>）の更新</td></tr>
+    <tr><td>POST</td><td>/auth/password</td><td>パスワード変更（<code>current_password</code> を検証）</td></tr>
+    <tr><td>GET</td><td>/admin/users</td><td>ユーザー一覧（admin 必須・401/403）</td></tr>
+    <tr><td>POST</td><td>/admin/users</td><td>ユーザー作成（admin 必須・409=重複）</td></tr>
+    <tr><td>PATCH</td><td>/admin/users/{username}</td><td>ロール変更・PW リセット（admin 必須・404 / 409=最後の admin 降格）</td></tr>
+    <tr><td>DELETE</td><td>/admin/users/{username}</td><td>ユーザー削除（admin 必須・404 / 409=最後の admin 削除）</td></tr>
+  </table>
+  <div class="note">
+    <code>/admin/users</code> 系は admin ロール必須。最後の admin を降格・削除しようとした場合、サーバー側が 409 で拒否する（自己ロックアウト防止のサーバー側ガード）。
+  </div>
+
+  <h3>セキュリティ</h3>
+  <ul>
+    <li>トークンは <code>httpOnly</code> Cookie のみが保持し、localStorage 等には保存しない（XSS 緩和）</li>
+    <li>パスワード入力欄は <code>type=password</code> を用いる</li>
+    <li>ログイン失敗はユーザーの存在を伏せた汎用文言とする</li>
+  </ul>
+
   <!-- ======= SCREENS ======= -->
-  <h2 id="screens">3. 各画面の設計</h2>
+  <h2 id="screens">4. 各画面の設計</h2>
+
+  <div class="screen">
+    <h4>エントリーゲート <span class="screen-path">app/page.tsx → /</span></h4>
+    <p>ルート（/）はアプリ状態に応じた振り分けを行うゲートとして機能する。判定は以下の順で評価される。</p>
+    <ol>
+      <li>API 設定の復元前 → スケルトンを表示</li>
+      <li>API 未設定 → <code>SetupModal</code> を表示</li>
+      <li><strong>未認証 → <code>LoginModal</code> を表示</strong>（<code>components/ui/LoginModal.tsx</code>・username + パスワード。失敗は汎用文言）</li>
+      <li>オンボーディング未完了 → <code>OnboardingSourcesModal</code>（ADR-012）</li>
+      <li>すべて充足 → <code>/feed</code> へ <code>replace</code> 遷移</li>
+    </ol>
+  </div>
 
   <div class="screen">
     <h4>Feed <span class="screen-path">/feed</span></h4>
@@ -217,10 +284,32 @@
       <tr><td>API キー</td><td>パスワード入力</td><td>localStorage（要注意: XSS リスク）</td></tr>
     </table>
     <div class="note">API キーは localStorage に保存するため XSS への注意が必要。CSP ヘッダーと <code>httpOnly</code> Cookie への移行を Phase 2 で検討する。</div>
+    <h4>アカウント管理（ADR-013）<span class="screen-path">components/ui/AccountSection.tsx</span></h4>
+    <p><code>/settings</code> 内にログイン中ユーザーのアカウント管理セクションを設ける。</p>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>表示名編集</td><td>表示名（<code>display_name</code>）を更新 → <code>PATCH /auth/me</code></td></tr>
+      <tr><td>パスワード変更</td><td>現在 PW と新 PW を入力 → <code>POST /auth/password</code>（現在 PW を検証）</td></tr>
+      <tr><td>ログアウト</td><td><code>logout()</code> 実行（ベストエフォート）</td></tr>
+      <tr><td>管理導線</td><td><code>user.role==='admin'</code> のときのみ <code>/admin/users</code> への導線を表示</td></tr>
+    </table>
+  </div>
+
+  <div class="screen">
+    <h4>ユーザー管理（admin 限定）<span class="screen-path">app/admin/users/page.tsx → /admin/users</span></h4>
+    <p>admin ロールのユーザーのみアクセスできるユーザー管理画面。一覧・作成・ロール変更・PW リセット・削除を行う。</p>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>ユーザー一覧</td><td><code>GET /admin/users</code> で取得・表示</td></tr>
+      <tr><td>ユーザー作成</td><td><code>POST /admin/users</code>（409=重複ユーザー名）</td></tr>
+      <tr><td>ロール変更 / PW リセット</td><td><code>PATCH /admin/users/{username}</code></td></tr>
+      <tr><td>削除</td><td><code>DELETE /admin/users/{username}</code></td></tr>
+      <tr><td>自己ロックアウト防止</td><td>自分自身（<code>u.username===user?.username</code>）の行にはロール変更・削除ボタンを出さない。サーバー側も最後の admin を 409 で拒否する</td></tr>
+    </table>
   </div>
 
   <!-- ======= COMPONENTS ======= -->
-  <h2 id="components">4. 共通コンポーネント設計</h2>
+  <h2 id="components">5. 共通コンポーネント設計</h2>
 
   <h3>コンポーネント一覧</h3>
   <div class="component-list">
@@ -234,12 +323,14 @@
     <div class="comp"><strong>StatusBadge</strong><span>processing/completed/failed を色付きバッジで表示。</span></div>
     <div class="comp"><strong>Toast</strong><span>成功/エラーのフィードバック通知（3 秒後に消える）。</span></div>
     <div class="comp"><strong>SetupModal</strong><span>API キー未設定時にモーダル表示。</span></div>
+    <div class="comp"><strong>LoginModal</strong><span>未認証時に表示。username + パスワード。失敗は汎用文言。</span></div>
+    <div class="comp"><strong>AccountSection</strong><span>/settings 内のアカウント管理。表示名・PW 変更・ログアウト・admin 導線。</span></div>
     <div class="comp"><strong>SkeletonCard</strong><span>データ取得中のプレースホルダー。</span></div>
     <div class="comp"><strong>ConfirmDialog</strong><span>RSS 削除時の確認ダイアログ。</span></div>
   </div>
 
   <!-- ======= STATE ======= -->
-  <h2 id="state">5. 状態管理</h2>
+  <h2 id="state">6. 状態管理</h2>
 
   <h3>グローバル状態（React Context）</h3>
   <p>
@@ -266,6 +357,17 @@
     <li><strong>SET_SPEED</strong>: 再生速度を変更する</li>
   </ul>
 
+  <h3>認証状態（AuthContext・ADR-013）</h3>
+  <p>
+    認証状態は <code>AppContext</code> とは別の <code>AuthContext</code>（<code>web/contexts/AuthContext.tsx</code>）が保持する。トークンは <code>httpOnly</code> Cookie <code>nl_session</code> が持つため Context・localStorage には保存せず、状態のみを扱う。詳細は「3. 認証・ユーザー管理（ADR-013）」を参照。
+  </p>
+  <table>
+    <tr><th>フィールド / メソッド</th><th>説明</th></tr>
+    <tr><td>status</td><td><code>unknown</code> / <code>authenticated</code> / <code>unauthenticated</code></td></tr>
+    <tr><td>user</td><td><code>AuthUser | null</code></td></tr>
+    <tr><td>login / logout / refreshMe</td><td>ログイン・ログアウト・<code>/auth/me</code> での再解決</td></tr>
+  </table>
+
   <h3>ローカル状態（各ページ / useReducer）</h3>
   <table>
     <tr><th>ページ</th><th>ローカル状態</th></tr>
@@ -276,7 +378,7 @@
   </table>
 
   <!-- ======= AUDIO ======= -->
-  <h2 id="audio">6. 音声再生設計</h2>
+  <h2 id="audio">7. 音声再生設計</h2>
 
   <h3>AudioPlayerBar の構成要素</h3>
   <ul>
@@ -314,13 +416,16 @@
   </ol>
 
   <!-- ======= API CLIENT ======= -->
-  <h2 id="api-client">7. API クライアント設計</h2>
+  <h2 id="api-client">8. API クライアント設計</h2>
 
   <p>
     クライアントは直接バックエンドを叩かず、Next.js 側の BFF プロキシ（<code>/api/backend/*</code>）を経由する。クライアントが localStorage に保持する API キーとバックエンドのベース URL は、リクエスト時に <code>X-API-Key</code>・<code>X-Backend-Base-Url</code> ヘッダとしてプロキシへ渡し、プロキシがバックエンドへ中継する。これによりブラウザのオリジン制約（CORS）や混在コンテンツを回避する。
   </p>
   <p>
     レスポンスが非正常の場合は本文の <code>detail</code> を含む <code>ApiError</code> へ正規化し、ステータスコードとメッセージを一貫した形で扱う。プロキシ経由で公開する API エンドポイントは以下のとおり。
+  </p>
+  <p>
+    認証関連のクライアント関数（<code>web/lib/api.ts</code>）は <code>login</code> / <code>logout</code> / <code>getMe</code> / <code>updateProfile(displayName)</code> / <code>changePassword(current, next)</code> と、管理用の <code>listUsers</code> / <code>createUser</code> / <code>updateUser</code> / <code>deleteUser</code> を提供する。これらはいずれも BFF を経由し、<code>nl_session</code> Cookie を自動で送受信する。クライアントはトークンを保持しない。API 契約の詳細は「3. 認証・ユーザー管理（ADR-013）」を参照。
   </p>
   <table>
     <tr><th>メソッド</th><th>パス</th><th>用途</th></tr>
@@ -384,8 +489,17 @@
     <tr><td>enabled</td><td>boolean</td><td>購読が有効かどうか</td></tr>
   </table>
 
+  <p>認証・ユーザー関連の型（<code>web/types/index.ts</code>・ADR-013）</p>
+  <table>
+    <tr><th>型</th><th>定義</th><th>説明</th></tr>
+    <tr><td>UserRole</td><td><code>'admin' | 'user'</code></td><td>ユーザーのロール</td></tr>
+    <tr><td>AuthUser</td><td><code>{ username, role, display_name }</code></td><td>ログイン中ユーザー</td></tr>
+    <tr><td>LoginResponse</td><td><code>{ token, user }</code></td><td><code>POST /auth/login</code> のレスポンス</td></tr>
+    <tr><td>UserListResponse</td><td><code>{ users }</code></td><td><code>GET /admin/users</code> のレスポンス</td></tr>
+  </table>
+
   <!-- ======= FILE STRUCTURE ======= -->
-  <h2 id="filestructure">8. ファイル構成</h2>
+  <h2 id="filestructure">9. ファイル構成</h2>
 
   <table>
     <tr><th>ディレクトリ / ファイル</th><th>責務</th></tr>
@@ -395,7 +509,9 @@
     <tr><td>app/podcast/page.tsx</td><td>/podcast（一覧）ページ</td></tr>
     <tr><td>app/podcast/[id]/page.tsx</td><td>/podcast/:id（詳細）ページ</td></tr>
     <tr><td>app/subscriptions/page.tsx</td><td>/subscriptions（RSS 購読管理）ページ</td></tr>
-    <tr><td>app/settings/page.tsx</td><td>/settings ページ</td></tr>
+    <tr><td>app/settings/page.tsx</td><td>/settings ページ（アカウント管理を含む）</td></tr>
+    <tr><td>app/admin/users/page.tsx</td><td>/admin/users（admin 限定ユーザー管理）ページ</td></tr>
+    <tr><td>app/api/backend/[...path]/route.ts</td><td>BFF プロキシ（API キー付与・<code>nl_session</code> Cookie 中継）</td></tr>
     <tr><td>components/NavigationBar.tsx</td><td>グローバルナビゲーション</td></tr>
     <tr><td>components/AudioPlayerBar.tsx</td><td>全ページ共通の音声プレイヤー</td></tr>
     <tr><td>components/ArticleCard.tsx</td><td>記事カード</td></tr>
@@ -407,9 +523,12 @@
     <tr><td>components/ui/Toast.tsx</td><td>トースト通知</td></tr>
     <tr><td>components/ui/ConfirmDialog.tsx</td><td>確認ダイアログ</td></tr>
     <tr><td>components/ui/SetupModal.tsx</td><td>初期設定モーダル</td></tr>
+    <tr><td>components/ui/LoginModal.tsx</td><td>ログインモーダル（未認証時）</td></tr>
+    <tr><td>components/ui/AccountSection.tsx</td><td>/settings 内のアカウント管理セクション</td></tr>
     <tr><td>components/ui/SkeletonCard.tsx</td><td>読み込み中プレースホルダー</td></tr>
     <tr><td>components/providers/AppProvider.tsx</td><td>AppContext のプロバイダ</td></tr>
     <tr><td>contexts/AppContext.tsx</td><td>グローバル状態の定義</td></tr>
+    <tr><td>contexts/AuthContext.tsx</td><td>認証状態の定義（ADR-013）</td></tr>
     <tr><td>hooks/useAudioPlayer.ts</td><td>HTML5 Audio API ラッパー</td></tr>
     <tr><td>hooks/usePodcastPolling.ts</td><td>生成中 Podcast のポーリング</td></tr>
     <tr><td>hooks/useLocalStorage.ts</td><td>localStorage の型付きラッパー</td></tr>
@@ -423,7 +542,7 @@
   </table>
 
   <!-- ======= DEPLOY ======= -->
-  <h2 id="deploy">9. デプロイ設計（Cloud Run）</h2>
+  <h2 id="deploy">10. デプロイ設計（Cloud Run）</h2>
 
   <h3>Dockerfile</h3>
   <p>

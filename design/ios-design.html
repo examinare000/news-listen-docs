@@ -45,6 +45,7 @@
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
   .card h4 { color: var(--accent2); margin: 0 0 8px; font-size: 13px; }
   .p1-badge { display: inline-block; background: rgba(240,160,80,.15); color: var(--orange); border: 1px solid rgba(240,160,80,.3); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; vertical-align: middle; margin-left: 6px; }
+  .admin-badge { display: inline-block; background: rgba(224,92,92,.15); color: var(--red); border: 1px solid rgba(224,92,92,.3); border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; vertical-align: middle; margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -58,6 +59,7 @@
     <a href="#overview">概要・技術スタック</a>
     <a href="#navigation">画面構成・ナビゲーション</a>
     <a href="#screens">各画面の設計</a>
+    <a href="#auth">認証・セッション</a>
     <a href="#mvvm">MVVM アーキテクチャ</a>
     <a href="#appstate">AppState 設計</a>
     <a href="#api-client">API クライアント</a>
@@ -67,31 +69,38 @@
   <div class="nav-group">
     <div class="nav-doc">他の設計書</div>
     <a href="backend-design.html">バックエンド</a>
+    <a href="app-ui.html">Web UI デザイン</a>
     <a href="web-design.html">Web フロントエンド</a>
   </div>
 </nav>
 
 <main>
   <h1>iOS 設計書</h1>
-  <p>SwiftUI ネイティブ iOS アプリケーション設計。<strong>Phase 2 対象</strong>（Web アプリが先行してリリースされた後に実装）。バックエンド API は Web と共通。</p>
+  <p>SwiftUI ネイティブ iOS アプリケーション設計。バックエンド API は Web と共通で、ネイティブはバックエンドへ直接接続する（<a href="../adr/007-ios-direct-backend-access.md">ADR-007</a>）。本書は設計の<strong>正本</strong>とする。</p>
   <div class="meta">
     <div class="badge">フレームワーク <span>SwiftUI</span></div>
     <div class="badge">言語 <span>Swift 5.10+</span></div>
     <div class="badge">最小 iOS <span>iOS 17</span></div>
     <div class="badge">Xcode <span>16+</span></div>
-    <div class="badge">フェーズ <span>Phase 2</span></div>
+    <div class="badge">最終更新 <span>2026-06-23</span></div>
+    <div class="badge">ステータス <span>実装進行中</span></div>
+  </div>
+
+  <div class="note">
+    <strong>関連:</strong>
+    <a href="../plan/2026-06-14-ios-app-requirements.md">要件</a>・
+    ADR <a href="../adr/007-ios-direct-backend-access.md">007</a>〜<a href="../adr/011-podcast-generation-status.md">011</a>・<a href="../adr/013-session-auth-and-user-management.md">013</a>（認証）・
+    <a href="../spec/2026-06-10-web-frontend-spec.md">Web フロントエンド仕様書</a>。
+    実装状況: 認証・Feed・Podcast 一覧・Settings（RSS 管理・アカウント管理）・管理者ユーザー管理は実装済み。音声再生（AVPlayer）は Task 6 未着手のため §8 は実装前の設計を据え置く。
   </div>
 
   <div class="warn">
-    <strong>是正済み（2026-06-14）:</strong> 本ビジュアル案には実バックエンドとの契約乖離があったため、正本は
-    <a href="../plan/2026-06-14-ios-app-requirements.md">要件</a>・
-    <a href="../design/2026-06-14-ios-app-design.md">設計（Markdown）</a>・
-    ADR <a href="../adr/007-ios-direct-backend-access.md">007</a>〜<a href="../adr/011-podcast-generation-status.md">011</a> とする。
-    主な是正点: ①再生位置・既定設定（難易度/速度）はサーバー API ではなく端末ローカル（UserDefaults）保存（<code>PATCH /podcasts/:id/position</code>・<code>PUT /settings</code> は<strong>存在しない</strong>）。
-    ②RSS は <code>/settings/sources</code>（URL キー・ID なし）で操作（<code>/subscriptions/:id</code> は誤り）。
+    <strong>バックエンド契約の要点（逸脱しないこと）:</strong>
+    ①再生位置・既定設定（難易度／速度）はサーバー API ではなく端末ローカル（UserDefaults）保存（<code>PATCH /podcasts/:id/position</code>・<code>PUT /settings</code> は<strong>存在しない</strong>）。
+    ②RSS は <code>/settings/sources</code>（URL キー・ID なし）で操作。
     ③<code>audio_url</code> は 1 時間失効の署名付き URL のため再生直前に再取得。
-    ④<code>status</code> は現行 API レスポンスに未含有のため生成中ポーリングは Phase 2 課題。
-    本 HTML 内の該当記述は以下で是正済み。
+    ④<code>status</code> は現行 Podcast レスポンスに未含有のため生成中ポーリングは Phase 2 課題（<a href="../adr/011-podcast-generation-status.md">ADR-011</a>）。
+    ⑤利用者はログイン必須（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）。セッショントークンは Keychain 保管、<code>Authorization: Bearer</code> で送出。
   </div>
 
   <!-- ======= OVERVIEW ======= -->
@@ -99,84 +108,108 @@
 
   <table>
     <tr><th>項目</th><th>技術</th><th>理由</th></tr>
-    <tr><td>UI フレームワーク</td><td>SwiftUI (iOS 17+)</td><td>宣言的 UI・モダン API・ライブアクティビティ等への拡張性</td></tr>
-    <tr><td>アーキテクチャ</td><td>MVVM</td><td>SwiftUI との相性が最良・テストしやすい ViewModel 分離</td></tr>
+    <tr><td>UI フレームワーク</td><td>SwiftUI (iOS 17+)</td><td>宣言的 UI・モダン API・拡張性</td></tr>
+    <tr><td>アーキテクチャ</td><td>MVVM（<code>ObservableObject</code> + <code>@MainActor</code>）</td><td>SwiftUI との相性・テストしやすい ViewModel 分離</td></tr>
     <tr><td>非同期処理</td><td>Swift Concurrency (async/await)</td><td>コールバック地獄なし・型安全</td></tr>
-    <tr><td>ネットワーク</td><td>URLSession (async/await)</td><td>標準ライブラリで完結・追加依存なし</td></tr>
-    <tr><td>音声再生</td><td>AVFoundation (AVPlayer)</td><td>速度制御・再生位置保存・バックグラウンド再生に対応</td></tr>
-    <tr><td>設定永続化</td><td>UserDefaults（@AppStorage）</td><td>API キー・デフォルト設定を端末に保存</td></tr>
-    <tr><td>テスト</td><td>XCTest + Swift Testing</td><td>ViewModel の単体テスト・モック URLSession</td></tr>
+    <tr><td>ネットワーク</td><td>URLSession (async/await)・<code>URLSessionProtocol</code> 注入</td><td>標準ライブラリで完結・テスト容易</td></tr>
+    <tr><td>音声再生</td><td>AVFoundation (AVPlayer)</td><td>速度制御・再生位置保存・バックグラウンド再生</td></tr>
+    <tr><td>設定永続化</td><td>UserDefaults（@AppStorage）</td><td>API URL/キー・既定値・再生位置を端末に保存</td></tr>
+    <tr><td>セッション保管</td><td>Keychain（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）</td><td>認証トークンは UserDefaults ではなく Keychain（端末ロック連動・バックアップ外）</td></tr>
+    <tr><td>テスト</td><td>XCTest（<code>MockURLSession</code> / <code>InMemorySessionStore</code> 注入）</td><td>APIClient・ViewModel の単体テスト</td></tr>
   </table>
 
   <!-- ======= NAVIGATION ======= -->
   <h2 id="navigation">2. 画面構成・ナビゲーション</h2>
 
-  <svg class="svg-diagram" viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
+  <p>起動時は API 設定の有無、続いて認証状態（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）でルーティングする。設定済みなら <code>refreshAuth()</code>（<code>GET /auth/me</code>）でセッションを解決し、未ログインなら <code>LoginView</code> を挟んでから本体（<code>ContentView</code>）へ入る。本体は標準 <code>TabView</code> の <strong>3 タブ</strong>（Feed / Podcast / Settings）。RSS 購読管理・アカウント管理・管理者によるユーザー管理は Settings タブ内に置く。</p>
+
+  <svg class="svg-diagram" viewBox="0 0 820 380" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
     <defs>
       <marker id="an" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1,1 L1,7 L8,4 z" fill="#4fc3f7"/></marker>
     </defs>
     <!-- App entry -->
-    <rect x="290" y="16" width="240" height="44" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="2"/>
-    <text x="410" y="36" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">TechNewsPodcastApp</text>
-    <text x="410" y="52" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">@main · AppState 生成</text>
-    <!-- Branch: unconfigured -->
-    <line x1="330" y1="60" x2="160" y2="96" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
-    <rect x="56" y="96" width="208" height="40" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1.5" stroke-dasharray="4,2"/>
-    <text x="160" y="113" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">InitialSetupView</text>
-    <text x="160" y="128" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">API URL + キー入力</text>
-    <text x="225" y="90" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">未設定時</text>
-    <!-- Branch: configured → ContentView -->
-    <line x1="490" y1="60" x2="660" y2="96" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
-    <text x="595" y="90" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">設定済み</text>
-    <rect x="556" y="96" width="208" height="40" rx="6" fill="#0f1e28" stroke="#4fc3f7" stroke-width="2"/>
-    <text x="660" y="113" fill="#4fc3f7" font-size="12" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">ContentView (TabView)</text>
-    <text x="660" y="128" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">4タブ構成</text>
-    <!-- 4 tabs -->
-    <line x1="590" y1="136" x2="160" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
-    <line x1="620" y1="136" x2="370" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
-    <line x1="700" y1="136" x2="580" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
-    <line x1="730" y1="136" x2="760" y2="180" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <rect x="310" y="14" width="200" height="42" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="2"/>
+    <text x="410" y="34" fill="#a89cf5" font-size="12" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">NewsListenApp</text>
+    <text x="410" y="50" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">@main · AppState 生成</text>
+    <!-- gate1: isConfigured? -->
+    <line x1="380" y1="56" x2="170" y2="92" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
+    <text x="232" y="82" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">未設定</text>
+    <line x1="440" y1="56" x2="540" y2="92" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
+    <text x="498" y="82" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">設定済み</text>
+    <!-- InitialSetupView -->
+    <rect x="66" y="92" width="208" height="40" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1.5" stroke-dasharray="4,2"/>
+    <text x="170" y="109" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">InitialSetupView</text>
+    <text x="170" y="124" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">API URL + キー入力・接続テスト</text>
+    <!-- authStatus decision -->
+    <rect x="436" y="92" width="208" height="40" rx="6" fill="#0f1e28" stroke="#4fc3f7" stroke-width="1.5"/>
+    <text x="540" y="109" fill="#4fc3f7" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">refreshAuth() → authStatus</text>
+    <text x="540" y="124" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">GET /auth/me</text>
+    <!-- InitialSetup → authStatus -->
+    <line x1="274" y1="112" x2="434" y2="112" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <!-- authStatus branches -->
+    <line x1="500" y1="132" x2="300" y2="168" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
+    <text x="360" y="158" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">unauthenticated</text>
+    <line x1="580" y1="132" x2="650" y2="168" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#an)"/>
+    <text x="628" y="158" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">authenticated</text>
+    <!-- LoginView -->
+    <rect x="196" y="168" width="208" height="40" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="300" y="185" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">LoginView</text>
+    <text x="300" y="200" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">username + パスワード</text>
+    <!-- ContentView -->
+    <rect x="556" y="168" width="208" height="40" rx="6" fill="#0f1e28" stroke="#4fc3f7" stroke-width="2"/>
+    <text x="660" y="185" fill="#4fc3f7" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">ContentView (TabView)</text>
+    <text x="660" y="200" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">3 タブ構成</text>
+    <!-- LoginView → ContentView (on success) -->
+    <line x1="404" y1="188" x2="554" y2="188" stroke="#4caf82" stroke-width="1.5" marker-end="url(#an)"/>
+    <text x="478" y="182" fill="#4caf82" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">ログイン成功</text>
+    <!-- 3 tabs -->
+    <line x1="600" y1="208" x2="160" y2="252" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <line x1="650" y1="208" x2="410" y2="252" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <line x1="700" y1="208" x2="650" y2="252" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
     <!-- Tab 1: Feed -->
-    <rect x="56" y="180" width="208" height="82" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
-    <text x="160" y="198" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 1: FeedView</text>
-    <text x="160" y="214" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">ArticleRowView × N</text>
-    <text x="160" y="230" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">右スワイプ → Star (★)</text>
-    <text x="160" y="246" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">左スワイプ → Dismiss (×)</text>
+    <rect x="56" y="252" width="208" height="70" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="160" y="270" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 1: FeedView</text>
+    <text x="160" y="286" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">右スワイプ → Star / 左 → Dismiss</text>
+    <text x="160" y="302" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">タップ → 記事を開く（設定で切替）</text>
     <!-- Tab 2: Podcast -->
-    <rect x="272" y="180" width="208" height="82" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
-    <text x="376" y="198" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 2: PodcastView</text>
-    <text x="376" y="214" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">PodcastRowView × N</text>
-    <text x="376" y="230" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">タップ → AudioPlayerView</text>
-    <text x="376" y="246" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">速度制御 · 再生位置保存</text>
-    <!-- Tab 3: Subscriptions -->
-    <rect x="488" y="180" width="208" height="82" rx="6" fill="#1e2b1e" stroke="#4caf82" stroke-width="2"/>
-    <text x="592" y="198" fill="#4caf82" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 3: SubscriptionsView</text>
-    <text x="592" y="214" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">購読ソース一覧</text>
-    <text x="592" y="230" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">スワイプ削除 · + ボタン追加</text>
-    <text x="592" y="246" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">AddSubscriptionSheet</text>
-    <!-- Tab 4: Settings -->
-    <rect x="704" y="180" width="100" height="82" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1"/>
-    <text x="754" y="198" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 4</text>
-    <text x="754" y="213" fill="#c8cad8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">Settings</text>
-    <text x="754" y="228" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">難易度 Picker</text>
-    <text x="754" y="243" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">速度 Slider</text>
-    <text x="754" y="258" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">API 設定</text>
+    <rect x="306" y="252" width="208" height="70" rx="6" fill="#1e1a30" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="410" y="270" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 2: PodcastView</text>
+    <text x="410" y="286" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">タップ → 再生（再生直前に再取得）</text>
+    <text x="410" y="302" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">速度制御 · 再生位置保存</text>
+    <!-- Tab 3: Settings -->
+    <rect x="556" y="252" width="208" height="70" rx="6" fill="#1e2b1e" stroke="#4caf82" stroke-width="1.5"/>
+    <text x="660" y="270" fill="#4caf82" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">Tab 3: SettingsView</text>
+    <text x="660" y="286" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">アカウント · RSS 購読 · 既定値 · API</text>
+    <text x="660" y="302" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">管理者 → ユーザー管理へ</text>
+    <!-- Settings → Account/Admin -->
+    <line x1="660" y1="322" x2="660" y2="352" stroke="#4caf82" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#an)"/>
+    <rect x="486" y="352" width="278" height="24" rx="4" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1"/>
+    <text x="625" y="368" fill="#c8cad8" font-size="10" font-family="-apple-system,sans-serif" text-anchor="middle">AccountSettingsView → AdminUsersView（管理者のみ）</text>
   </svg>
 
   <!-- ======= SCREENS ======= -->
   <h2 id="screens">3. 各画面の設計</h2>
 
   <div class="screen">
+    <h4>LoginView <span class="screen-path">起動ゲート（未認証時）</span></h4>
+    <p>API 設定済みかつ未ログイン（<code>authStatus == .unauthenticated</code>）のときに提示する（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）。</p>
+    <table>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>入力</td><td>username（ログイン ID）・パスワード（<code>SecureField</code>）</td></tr>
+      <tr><td>送信</td><td><code>POST /auth/login</code> → 成功で <code>AppState.completeLogin(response)</code>（トークンを Keychain 保存・<code>currentUser</code> 設定・<code>authStatus = .authenticated</code>）</td></tr>
+      <tr><td>失敗</td><td>ユーザー存在の有無を伏せた汎用文言（「ユーザー ID またはパスワードが正しくありません」）。<code>401</code></td></tr>
+    </table>
+  </div>
+
+  <div class="screen">
     <h4>FeedView <span class="screen-path">Tab 1 — Feed</span></h4>
     <table>
       <tr><th>要素</th><th>詳細</th></tr>
-      <tr><td>記事リスト</td><td>List + LazyVStack。スコア降順（最大 50 件）</td></tr>
-      <tr><td>スワイプ操作</td><td><code>.swipeActions(edge: .leading)</code> → Star（黄★）<br><code>.swipeActions(edge: .trailing)</code> → Dismiss（赤×）</td></tr>
-      <tr><td>タップ</td><td>元記事を SafariServices (SFSafariViewController) で開く</td></tr>
-      <tr><td>ローディング</td><td><code>.task</code> で初回フェッチ。ProgressView 表示</td></tr>
-      <tr><td>リフレッシュ</td><td><code>.refreshable</code> でプルトゥリフレッシュ</td></tr>
-      <tr><td>空状態</td><td><code>ContentUnavailableView</code>（iOS 17 標準）</td></tr>
-      <tr><td>エラー</td><td><code>.alert</code> でエラーメッセージ表示</td></tr>
+      <tr><td>記事リスト</td><td>List。スコア降順（最大 50 件）。スコアは横バーで可視化</td></tr>
+      <tr><td>スワイプ操作</td><td><code>.swipeActions(.leading)</code> → Star（黄★）／ <code>.swipeActions(.trailing)</code> → Dismiss（赤×）</td></tr>
+      <tr><td>タップ</td><td><code>AppState.articleOpenMode</code> に従う。<code>in_app</code> → <code>SafariView</code>（<code>SFSafariViewController</code>）を <code>.sheet</code>／<code>external</code> → <code>openURL</code> で外部 Safari</td></tr>
+      <tr><td>ローディング</td><td><code>.task</code> 初回フェッチ・<code>.refreshable</code> プルトゥリフレッシュ</td></tr>
+      <tr><td>空 / エラー</td><td><code>ContentUnavailableView</code>（iOS 17 標準）</td></tr>
     </table>
   </div>
 
@@ -184,235 +217,223 @@
     <h4>PodcastView <span class="screen-path">Tab 2 — Podcast</span></h4>
     <table>
       <tr><th>要素</th><th>詳細</th></tr>
-      <tr><td>エピソードリスト</td><td>タイトル・難易度バッジ・再生時間・ステータス</td></tr>
-      <tr><td>ステータス表示</td><td>生成中: ProgressView スピナー、失敗: exclamationmark アイコン、完了: 再生アイコン</td></tr>
-      <tr><td>生成状態表示</td><td>Phase 1 は対象外（API レスポンスに <code>status</code> 未含有。<a href="../adr/011-podcast-generation-status.md">ADR-011</a>）。pull-to-refresh で完成エピソードを表示</td></tr>
-      <tr><td>AudioPlayerView</td><td>タップで展開。再生/一時停止・シークバー・速度セグメント・日本語イントロ表示</td></tr>
-      <tr><td>バックグラウンド再生</td><td>AVAudioSession + Background Modes 設定（音楽）</td></tr>
+      <tr><td>エピソードリスト</td><td>タイトル・難易度バッジ・種別・イントロ抜粋・再生時間・続き位置</td></tr>
+      <tr><td>生成状態表示</td><td>現行 API レスポンスに <code>status</code> 未含有のため生成中ポーリングは Phase 2（<a href="../adr/011-podcast-generation-status.md">ADR-011</a>）。pull-to-refresh で完成エピソードを表示</td></tr>
+      <tr><td>再生</td><td>タップで再生（§7 フロー）。詳細はサブ画面で全文表示</td></tr>
     </table>
   </div>
 
   <div class="screen">
-    <h4>SubscriptionsView <span class="screen-path">Tab 3 — 購読管理（専用タブ）</span></h4>
-    <p>RSS 購読ソースの一覧・追加・削除を行う専用画面。</p>
+    <h4>SettingsView <span class="screen-path">Tab 3 — 設定</span></h4>
+    <p>アカウント管理・RSS 購読管理・既定値・API 設定を 1 タブに集約する（購読管理は独立タブにせず内包）。</p>
+    <table>
+      <tr><th>セクション</th><th>内容</th><th>保存先</th></tr>
+      <tr><td>アカウント管理</td><td>下記 <code>AccountSettingsView</code>（表示名・パスワード変更・ログアウト・管理者導線）</td><td>サーバー（セッション）</td></tr>
+      <tr><td>RSS ソース管理</td><td>一覧 + <code>onDelete</code>→確認→削除、追加シート（名前/URL・クライアントバリデーション・409/422 インライン表示）</td><td>サーバー <code>/settings/sources</code>（URL キー）</td></tr>
+      <tr><td>既定難易度</td><td>Picker（6 段階）</td><td>UserDefaults（端末ローカルのみ）</td></tr>
+      <tr><td>既定再生速度</td><td>Slider / Picker（0.5〜2.5）</td><td>UserDefaults（端末ローカルのみ）</td></tr>
+      <tr><td>記事の開き方</td><td>Picker（アプリ内 / 外部 Safari）</td><td>UserDefaults</td></tr>
+      <tr><td>API 設定</td><td>URL・キー（<code>SecureField</code>）・テーマ切替</td><td>UserDefaults</td></tr>
+    </table>
+  </div>
+
+  <div class="screen">
+    <h4>AccountSettingsView <span class="screen-path">Settings 内 — アカウント</span></h4>
     <table>
       <tr><th>要素</th><th>詳細</th></tr>
-      <tr><td>ソース一覧</td><td>List でソース名と URL を表示。デフォルト2件（HackerNews / Zenn）</td></tr>
-      <tr><td>スワイプ削除</td><td><code>.onDelete</code> → 確認アクションシート → DELETE /settings/sources?url=（URL キー）</td></tr>
-      <tr><td>追加ボタン</td><td>ツールバーの <code>+</code> ボタン → AddSubscriptionSheet をシート表示</td></tr>
-      <tr><td>AddSubscriptionSheet</td><td>「ソース名」「RSS URL」TextField + 追加ボタン（インラインバリデーション）</td></tr>
-      <tr><td>バリデーション</td><td>URL 形式チェック（クライアント）+ エラーレスポンスをインライン表示</td></tr>
-      <tr><td>エラー表示</td><td>409 重複: 「この URL は登録済みです」、422: 「RSS フィードとして読み込めません」</td></tr>
+      <tr><td>表示名の変更</td><td><code>PATCH /auth/me</code>（<code>display_name</code>）</td></tr>
+      <tr><td>パスワード変更</td><td><code>POST /auth/password</code>（現在 PW 検証必須）</td></tr>
+      <tr><td>ログアウト</td><td><code>AppState.logout()</code>（<code>POST /auth/logout</code> ベストエフォート・必ず Keychain のトークン破棄）</td></tr>
+      <tr><td>管理者導線</td><td><code>currentUser?.isAdmin</code> のとき <code>AdminUsersView</code> への <code>NavigationLink</code> を表示</td></tr>
     </table>
-    <h4>AddSubscriptionSheet の詳細フロー</h4>
-    <ol>
-      <li>「ソース名」と「RSS URL」を TextField に入力</li>
-      <li>追加ボタンタップ（名前・URL が空の場合は無効）</li>
-      <li>POST /settings/sources（body <code>{name, url}</code>） → 成功時: シートを閉じて一覧を更新</li>
-      <li>失敗時: シートを閉じず、TextField の下にエラーメッセージを表示</li>
-    </ol>
   </div>
 
   <div class="screen">
-    <h4>SettingsView <span class="screen-path">Tab 4 — 設定</span></h4>
+    <h4>AdminUsersView <span class="admin-badge">ADMIN</span><span class="screen-path">Settings 内 — ユーザー管理</span></h4>
+    <p>admin ロールのみ到達できる管理画面（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）。</p>
     <table>
-      <tr><th>設定項目</th><th>UI</th><th>保存先</th></tr>
-      <tr><td>デフォルト難易度</td><td>Picker（6 段階）</td><td>UserDefaults（端末ローカルのみ。設定 API は無し）</td></tr>
-      <tr><td>デフォルト再生速度</td><td>Slider（0.5〜2.5）</td><td>UserDefaults（端末ローカルのみ。設定 API は無し）</td></tr>
-      <tr><td>API エンドポイント URL</td><td>TextField</td><td>UserDefaults</td></tr>
-      <tr><td>API キー</td><td>SecureField</td><td>UserDefaults（Keychain 移行は P2）</td></tr>
+      <tr><th>要素</th><th>詳細</th></tr>
+      <tr><td>一覧</td><td><code>GET /admin/users</code>。username・表示名・ロールを表示</td></tr>
+      <tr><td>作成</td><td><code>POST /admin/users</code>（username / password / role / display_name）</td></tr>
+      <tr><td>ロール変更・PW リセット</td><td><code>PATCH /admin/users/{username}</code>（指定フィールドのみ）</td></tr>
+      <tr><td>削除</td><td><code>DELETE /admin/users/{username}</code></td></tr>
+      <tr><td>自己ロックアウト防止</td><td>自分自身（<code>user.username == currentUser?.username</code>）の行はロール変更・削除ボタンを<strong>非表示</strong>。サーバー側も最後の admin を <code>409</code> で拒否（二重防御）</td></tr>
     </table>
   </div>
 
+  <!-- ======= AUTH ======= -->
+  <h2 id="auth">4. 認証・セッション（ADR-013）</h2>
+
+  <p>利用者は username + パスワードでログインし、以降は不透明トークンで認証する。Web は httpOnly Cookie、<strong>iOS は <code>Authorization: Bearer</code></strong> でトークンを送る（バックエンドの認証依存が両系統を吸収）。</p>
+
+  <h3>認証モデル（<code>Models/AuthModels.swift</code>）</h3>
+  <table>
+    <tr><th>型</th><th>内容</th></tr>
+    <tr><td>AuthUser</td><td><code>username</code> / <code>role</code>（admin|user）/ <code>displayName</code>（<code>display_name</code>）。<code>isAdmin</code> 派生を持つ</td></tr>
+    <tr><td>LoginResponse</td><td><code>token</code> + <code>user</code>（<code>POST /auth/login</code> のレスポンス）</td></tr>
+    <tr><td>UserListResponse</td><td><code>users</code>（<code>GET /admin/users</code>）</td></tr>
+    <tr><td>AuthStatus（enum）</td><td><code>unknown</code>（解決前）/ <code>authenticated</code> / <code>unauthenticated</code></td></tr>
+  </table>
+
+  <h3>セッションストア（<code>Networking/SessionStore.swift</code>）</h3>
+  <table>
+    <tr><th>型</th><th>役割</th></tr>
+    <tr><td><code>SessionStore</code>（protocol）</td><td>トークンの読み書き抽象</td></tr>
+    <tr><td><code>KeychainSessionStore</code></td><td>本番。Keychain（generic password）に保管。service=<code>com.newslisten.app.session</code>・account=<code>nl_session</code>・アクセス属性 <code>kSecAttrAccessibleAfterFirstUnlock</code>（端末ロック連動・バックアップ外）</td></tr>
+    <tr><td><code>InMemorySessionStore</code></td><td>テスト用インメモリ実装</td></tr>
+  </table>
+
+  <h3>認証フロー</h3>
+  <ul>
+    <li><strong>起動解決</strong>: 設定済みなら <code>AppState.refreshAuth()</code> が <code>GET /auth/me</code> を呼ぶ。成功 → <code>authStatus = .authenticated</code>、失敗 → トークン破棄 + <code>.unauthenticated</code>。</li>
+    <li><strong>ログイン</strong>: <code>LoginView</code> → <code>POST /auth/login</code> → <code>completeLogin(response)</code>（Keychain へトークン保存・<code>currentUser</code> 設定・トークン付き <code>APIClient</code> を再生成）。</li>
+    <li><strong>ログアウト</strong>: <code>logout()</code> は <code>POST /auth/logout</code> をベストエフォートで呼び、必ず Keychain のトークンを破棄して <code>.unauthenticated</code> 化。</li>
+    <li><strong>失効への追従</strong>: 管理者による降格・PW リセット・削除でサーバー側セッションが失効すると、以降のリクエストは <code>401</code>。これを未認証として扱い再ログインへ誘導する。</li>
+  </ul>
+
   <!-- ======= MVVM ======= -->
-  <h2 id="mvvm">4. MVVM アーキテクチャ</h2>
+  <h2 id="mvvm">5. MVVM アーキテクチャ</h2>
 
   <h3>依存関係図</h3>
-  <svg class="svg-diagram" viewBox="0 0 820 240" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
+  <svg class="svg-diagram" viewBox="0 0 820 260" xmlns="http://www.w3.org/2000/svg" style="background:#1a1d27">
     <defs>
       <marker id="am" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1,1 L1,7 L8,4 z" fill="#4fc3f7"/></marker>
       <marker id="amv" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1,1 L1,7 L8,4 z" fill="#a89cf5"/></marker>
     </defs>
     <!-- AppState (global) -->
-    <rect x="292" y="16" width="236" height="62" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="2"/>
-    <text x="410" y="38" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">AppState</text>
-    <text x="410" y="54" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">@Observable  ·  全 View で共有</text>
-    <text x="410" y="70" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">apiClient: APIClient · audioPlayer</text>
+    <rect x="290" y="14" width="240" height="68" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="2"/>
+    <text x="410" y="36" fill="#a89cf5" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">AppState</text>
+    <text x="410" y="52" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">ObservableObject · @MainActor</text>
+    <text x="410" y="68" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">authStatus · currentUser · apiClient</text>
     <!-- APIClient (right) -->
-    <rect x="620" y="16" width="180" height="62" rx="8" fill="#0f1e28" stroke="#4fc3f7" stroke-width="1.5"/>
-    <text x="710" y="44" fill="#4fc3f7" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">APIClient</text>
-    <text x="710" y="62" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">URLSession wrapper</text>
-    <!-- AppState → APIClient -->
-    <line x1="528" y1="47" x2="618" y2="47" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#am)"/>
-    <!-- AudioPlayerState (left) -->
-    <rect x="20" y="16" width="200" height="62" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="1.5"/>
-    <text x="120" y="38" fill="#a89cf5" font-size="12" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">AudioPlayerState</text>
-    <text x="120" y="54" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">AVPlayer wrapper</text>
-    <text x="120" y="70" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">@Observable</text>
-    <!-- AppState → AudioPlayerState -->
-    <line x1="292" y1="47" x2="222" y2="47" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#amv)"/>
+    <rect x="620" y="14" width="184" height="68" rx="8" fill="#0f1e28" stroke="#4fc3f7" stroke-width="1.5"/>
+    <text x="712" y="38" fill="#4fc3f7" font-size="13" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">APIClient</text>
+    <text x="712" y="56" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">URLSession ラッパー</text>
+    <text x="712" y="72" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">Authorization: Bearer</text>
+    <line x1="530" y1="40" x2="618" y2="40" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#am)"/>
+    <!-- SessionStore (left) -->
+    <rect x="16" y="14" width="200" height="68" rx="8" fill="#231e35" stroke="#7c6af7" stroke-width="1.5"/>
+    <text x="116" y="36" fill="#a89cf5" font-size="12" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="700">SessionStore</text>
+    <text x="116" y="54" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">KeychainSessionStore</text>
+    <text x="116" y="70" fill="#8b8fa8" font-size="10" font-family="SF Mono,monospace" text-anchor="middle">トークン保管</text>
+    <line x1="290" y1="40" x2="218" y2="40" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#amv)"/>
     <!-- ViewModels row -->
-    <rect x="20" y="140" width="166" height="44" rx="6" fill="#1e1a30" stroke="#a89cf5" stroke-width="1"/>
-    <text x="103" y="158" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">FeedViewModel</text>
-    <text x="103" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">記事 · Star · Dismiss</text>
-    <rect x="202" y="140" width="166" height="44" rx="6" fill="#1e1a30" stroke="#a89cf5" stroke-width="1"/>
-    <text x="285" y="158" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">PodcastViewModel</text>
-    <text x="285" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">一覧 · 再生 · ポーリング</text>
-    <rect x="384" y="140" width="184" height="44" rx="6" fill="#1e2b1e" stroke="#4caf82" stroke-width="1.5"/>
-    <text x="476" y="158" fill="#4caf82" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle" font-weight="600">SubscriptionsViewModel</text>
-    <text x="476" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">RSS 一覧 · 追加 · 削除</text>
-    <rect x="584" y="140" width="166" height="44" rx="6" fill="#1a1d27" stroke="#8b8fa8" stroke-width="1"/>
-    <text x="667" y="158" fill="#c8cad8" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">SettingsViewModel</text>
-    <text x="667" y="175" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">設定 · AppState 同期</text>
+    <rect x="40" y="150" width="180" height="46" rx="6" fill="#1e1a30" stroke="#a89cf5" stroke-width="1"/>
+    <text x="130" y="169" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">FeedViewModel</text>
+    <text x="130" y="186" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">記事 · Star · Dismiss</text>
+    <rect x="240" y="150" width="180" height="46" rx="6" fill="#1e1a30" stroke="#a89cf5" stroke-width="1"/>
+    <text x="330" y="169" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">PodcastViewModel</text>
+    <text x="330" y="186" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">一覧 · 再生</text>
+    <rect x="440" y="150" width="180" height="46" rx="6" fill="#1e1a30" stroke="#a89cf5" stroke-width="1"/>
+    <text x="530" y="169" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">SettingsViewModel</text>
+    <text x="530" y="186" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">RSS · 既定値 · 同期</text>
+    <rect x="640" y="150" width="164" height="46" rx="6" fill="#231e35" stroke="#7c6af7" stroke-width="1"/>
+    <text x="722" y="169" fill="#a89cf5" font-size="11" font-family="-apple-system,sans-serif" text-anchor="middle">AudioPlayerState</text>
+    <text x="722" y="186" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif" text-anchor="middle">AVPlayer（Task 6）</text>
     <!-- AppState → each ViewModel (inject) -->
-    <line x1="350" y1="78" x2="103" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
-    <line x1="380" y1="78" x2="285" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
-    <line x1="430" y1="78" x2="476" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
-    <line x1="460" y1="78" x2="667" y2="138" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <line x1="360" y1="82" x2="130" y2="148" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <line x1="395" y1="82" x2="330" y2="148" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <line x1="430" y1="82" x2="530" y2="148" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
+    <line x1="460" y1="82" x2="722" y2="148" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#amv)"/>
     <!-- ViewModels → APIClient -->
-    <line x1="186" y1="162" x2="618" y2="55" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
-    <line x1="368" y1="162" x2="622" y2="58" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
-    <line x1="568" y1="162" x2="626" y2="62" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
-    <line x1="750" y1="162" x2="730" y2="80" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
-    <!-- PodcastViewModel → AudioPlayerState -->
-    <line x1="202" y1="168" x2="220" y2="168" stroke="#a89cf5" stroke-width="1" stroke-dasharray="3,2"/>
-    <line x1="120" y1="78" x2="120" y2="138" stroke="#a89cf5" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#amv)"/>
-    <text x="140" y="112" fill="#8b8fa8" font-size="9" font-family="-apple-system,sans-serif">再生制御</text>
+    <line x1="220" y1="170" x2="620" y2="60" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#am)"/>
     <!-- legend -->
-    <text x="20" y="218" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">凡例:</text>
-    <line x1="55" y1="214" x2="80" y2="214" stroke="#7c6af7" stroke-width="1.5"/>
-    <text x="84" y="218" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">AppState から注入</text>
-    <line x1="180" y1="214" x2="205" y2="214" stroke="#4fc3f7" stroke-width="1.5" stroke-dasharray="3,2"/>
-    <text x="209" y="218" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">APIClient 呼び出し</text>
+    <text x="40" y="226" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">凡例:</text>
+    <line x1="75" y1="222" x2="100" y2="222" stroke="#7c6af7" stroke-width="1.5" stroke-dasharray="4,2"/>
+    <text x="104" y="226" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">AppState から注入</text>
+    <line x1="210" y1="222" x2="235" y2="222" stroke="#4fc3f7" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <text x="239" y="226" fill="#8b8fa8" font-size="10" font-family="-apple-system,sans-serif">APIClient 呼び出し</text>
   </svg>
 
-  <h3>ViewModel 責務</h3>
+  <h3>レイヤー責務</h3>
   <table>
-    <tr><th>ViewModel</th><th>責務</th></tr>
-    <tr><td>FeedViewModel</td><td>記事一覧の取得・Star/Dismiss 操作・リスト更新</td></tr>
-    <tr><td>PodcastViewModel</td><td>エピソード一覧/詳細の取得・再生トリガー（再生直前に再取得）。生成状態ポーリングは Phase 2</td></tr>
-    <tr><td>SubscriptionsViewModel</td><td>RSS ソース一覧の取得・追加（バリデーション含む）・削除</td></tr>
-    <tr><td>SettingsViewModel</td><td>設定の読み込み・更新・AppState との同期</td></tr>
-    <tr><td>AudioPlayerState</td><td>AVPlayer のラッパー・再生位置の定期ローカル保存・速度制御</td></tr>
+    <tr><th>要素</th><th>責務</th></tr>
+    <tr><td>AppState（ObservableObject・@MainActor）</td><td>API 設定・既定値の保持、認証状態（authStatus / currentUser / sessionStore）、設定変更・ログイン状態変化時の <code>APIClient</code> 再生成、共有 <code>AudioPlayerState</code> の保持、<code>isConfigured</code> 等の派生</td></tr>
+    <tr><td>APIClient（@MainActor）</td><td>全エンドポイント呼び出し。<code>URLSessionProtocol</code> 注入。レスポンスを Codable でデコードし非 2xx を <code>APIError</code> に正規化。初期化時の <code>sessionToken</code> を Bearer ヘッダへ反映</td></tr>
+    <tr><td>各 ViewModel（ObservableObject・@MainActor）</td><td>画面単位の状態（loading/error/items）と操作。<code>AppState.apiClient</code> 経由で通信</td></tr>
+    <tr><td>AudioPlayerState（ObservableObject・Task 6 予定）</td><td>AVPlayer ラッパー。再生制御・速度・再生位置のローカル保存・Now Playing 連携</td></tr>
   </table>
 
   <!-- ======= APPSTATE ======= -->
-  <h2 id="appstate">5. AppState 設計</h2>
+  <h2 id="appstate">6. AppState 設計</h2>
 
-  <p><code>AppState</code> はアプリ全体のグローバル状態（<code>@Observable</code>）を保持する。API 接続設定および再生既定値は <code>@AppStorage</code> 経由で UserDefaults に永続化し、音声再生中の一時状態はメモリのみで保持する。派生プロパティは保持値から計算で導出する。</p>
+  <p><code>AppState</code>（<code>ObservableObject</code>・<code>@MainActor</code>）はアプリ全体のグローバル状態を保持する。API 接続設定・再生既定値は <code>@AppStorage</code>（UserDefaults）に、<strong>セッショントークンは <code>SessionStore</code>（Keychain）</strong>に永続化する。音声再生中の一時状態はメモリのみ。</p>
   <table>
-    <tr><th>プロパティ</th><th>保存先</th><th>説明</th></tr>
-    <tr><td>apiBaseURL</td><td>UserDefaults 永続化（@AppStorage）</td><td>API のベース URL（既定: 空）</td></tr>
-    <tr><td>apiKey</td><td>UserDefaults 永続化（@AppStorage）</td><td>API キー（既定: 空）</td></tr>
-    <tr><td>defaultDifficulty</td><td>UserDefaults 永続化（@AppStorage）</td><td>既定の難易度（既定: toeic_900）。端末ローカルのみで管理</td></tr>
-    <tr><td>defaultPlaybackSpeed</td><td>UserDefaults 永続化（@AppStorage）</td><td>既定の再生速度（既定: 1.0）。端末ローカルのみで管理</td></tr>
-    <tr><td>currentPodcast</td><td>メモリのみ</td><td>現在再生中のエピソード</td></tr>
-    <tr><td>isPlaying</td><td>メモリのみ</td><td>再生中かどうか</td></tr>
-    <tr><td>currentTimeSeconds</td><td>メモリのみ</td><td>現在の再生位置（秒）</td></tr>
-    <tr><td>durationSeconds</td><td>メモリのみ</td><td>総再生時間（秒）</td></tr>
-    <tr><td>playbackSpeed</td><td>メモリのみ</td><td>現在の再生速度</td></tr>
-    <tr><td>isConfigured（派生）</td><td>計算で導出</td><td>apiBaseURL と apiKey の両方が設定済みなら true</td></tr>
-    <tr><td>apiClient（派生）</td><td>計算で導出</td><td>設定済みかつ URL が有効な場合に APIClient を生成して返す</td></tr>
+    <tr><th>プロパティ / メソッド</th><th>保存先</th><th>説明</th></tr>
+    <tr><td>apiBaseURL / apiKey</td><td>UserDefaults（@AppStorage）</td><td>API のベース URL・キー</td></tr>
+    <tr><td>defaultDifficulty / defaultPlaybackSpeed</td><td>UserDefaults（@AppStorage）</td><td>既定難易度（既定 toeic_900）・既定速度（既定 1.0）。端末ローカルのみ</td></tr>
+    <tr><td>articleOpenMode</td><td>UserDefaults（@AppStorage）</td><td>記事の開き方（<code>in_app</code> / <code>external</code>、既定 <code>in_app</code>）</td></tr>
+    <tr><td>authStatus</td><td>メモリ（起動時に解決）</td><td><code>unknown</code> → <code>authenticated</code> / <code>unauthenticated</code></td></tr>
+    <tr><td>currentUser</td><td>メモリ</td><td>ログイン中ユーザー（<code>AuthUser?</code>）</td></tr>
+    <tr><td>sessionStore</td><td>Keychain</td><td>トークン保管先（本番 <code>KeychainSessionStore</code>）</td></tr>
+    <tr><td>completeLogin(response)</td><td>—</td><td>トークン保存 + <code>currentUser</code> 設定 + <code>.authenticated</code> + APIClient 再生成</td></tr>
+    <tr><td>refreshAuth()</td><td>—</td><td><code>GET /auth/me</code> で解決。失敗ならトークン破棄 + <code>.unauthenticated</code></td></tr>
+    <tr><td>logout()</td><td>—</td><td><code>POST /auth/logout</code>（ベストエフォート）+ 必ずトークン破棄 + <code>.unauthenticated</code></td></tr>
+    <tr><td>currentPodcast / isPlaying / currentTimeSeconds / durationSeconds / playbackSpeed</td><td>メモリのみ</td><td>再生中の一時状態</td></tr>
+    <tr><td>isConfigured / apiClient（派生）</td><td>計算で導出</td><td>設定済み判定・トークン付き APIClient の生成</td></tr>
   </table>
 
   <!-- ======= API CLIENT ======= -->
-  <h2 id="api-client">6. API クライアント設計</h2>
+  <h2 id="api-client">7. API クライアント設計</h2>
 
-  <p><code>APIClient</code> は <code>@MainActor</code> で動作し、ベース URL・API キー・セッションを保持する。テスト可能性のため <code>URLSessionProtocol</code> を注入し、本番では <code>URLSession</code> を、テストではモックを差し替える。エラーは <code>APIError</code> 型で表現し、<code>invalidURL</code>（URL 不正）・<code>httpError(statusCode, detail)</code>（HTTP エラー）・<code>decodingError</code>（デコード失敗）の 3 種を持つ。</p>
+  <p><code>APIClient</code> は <code>@MainActor</code> で動作し、ベース URL・API キー・セッショントークンを保持する。全リクエストに基盤の <code>X-API-Key</code> を付与し、<strong>ログイン後はさらに <code>Authorization: Bearer &lt;token&gt;</code></strong> を付与する（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）。テスト可能性のため <code>URLSessionProtocol</code> を注入する。エラーは <code>APIError</code> 型（<code>network</code> / <code>http(statusCode, detail)</code> / <code>decoding</code>）。</p>
   <table>
-    <tr><th>メソッド</th><th>用途</th></tr>
-    <tr><td>フィード取得（fetchFeed）</td><td>記事フィードの一覧を取得</td></tr>
-    <tr><td>記事の Star（starArticle(id)）</td><td>指定記事に Star を付与</td></tr>
-    <tr><td>記事の Dismiss（dismissArticle(id)）</td><td>指定記事を非表示にする</td></tr>
-    <tr><td>エピソード一覧取得（fetchPodcasts）</td><td>ポッドキャストのエピソード一覧を取得</td></tr>
-    <tr><td>エピソード詳細取得（fetchPodcast(id)）</td><td>エピソード詳細を取得。再生直前の再取得にも使用（署名付き URL 失効対策）</td></tr>
-    <tr><td>RSS ソース一覧取得（fetchSources）</td><td>登録済み RSS ソースの一覧を取得</td></tr>
-    <tr><td>RSS ソース追加（addSource(name, url)）</td><td>名前と URL を指定して RSS ソースを追加</td></tr>
-    <tr><td>RSS ソース削除（deleteSource(url)）</td><td>URL をキーに RSS ソースを削除（DELETE /settings/sources?url=）</td></tr>
+    <tr><th>メソッド</th><th>パス</th><th>用途</th></tr>
+    <tr><td>fetchFeed</td><td>GET /feed</td><td>記事フィード一覧</td></tr>
+    <tr><td>starArticle(id) / dismissArticle(id)</td><td>POST /articles/{id}/star · /dismiss</td><td>Star / Dismiss</td></tr>
+    <tr><td>fetchPodcasts / fetchPodcast(id)</td><td>GET /podcasts · /podcasts/{id}</td><td>一覧 / 単体（再生直前の再取得）</td></tr>
+    <tr><td>fetchSources / addSource / deleteSource</td><td>GET/POST /settings/sources · DELETE ?url=</td><td>RSS 一覧 / 追加 / 削除（URL キー）</td></tr>
+    <tr><td>login / logout</td><td>POST /auth/login · /auth/logout</td><td>ログイン / ログアウト</td></tr>
+    <tr><td>fetchMe / updateProfile</td><td>GET · PATCH /auth/me</td><td>ユーザー取得 / 表示名更新</td></tr>
+    <tr><td>changePassword</td><td>POST /auth/password</td><td>パスワード変更</td></tr>
+    <tr><td>listUsers / createUser <span class="admin-badge">ADMIN</span></td><td>GET · POST /admin/users</td><td>ユーザー一覧 / 作成</td></tr>
+    <tr><td>updateUser / deleteUser <span class="admin-badge">ADMIN</span></td><td>PATCH · DELETE /admin/users/{username}</td><td>更新 / 削除</td></tr>
   </table>
-  <p>再生位置はサーバーに送らず端末ローカルに保存するため、再生位置 API は存在しない。既定難易度・既定再生速度の設定 API も存在せず、これらは端末ローカル（UserDefaults）のみで管理する。RSS ソースの実エンドポイントは <code>/settings/sources</code> で、URL をキーとし ID は持たない。</p>
+  <p>再生位置・既定設定の API は存在しないため、これらは端末ローカル（UserDefaults）のみで管理する。主要エラーコード: 401（キー不正・未認証/失効セッション）/ 403（admin 権限不足）/ 404（不存在）/ 409（重複・最後の admin 保護）/ 422（不正フィード）。</p>
 
   <h3>モックテスト戦略</h3>
-  <p><code>URLSessionProtocol</code> に準拠した <code>MockURLSession</code> をテスト用に定義し、<code>APIClient</code> に注入する。ViewModel のテストでは <code>APIClient</code> 自体をモック可能なプロトコル（<code>APIClientProtocol</code>）に差し替える。</p>
+  <p><code>URLSessionProtocol</code> に準拠する <code>MockURLSession</code> を <code>APIClient</code> に注入し、固定レスポンスでデコード・エラー分岐を検証する（<code>APIClient</code> が <code>@MainActor</code> のためテストクラスも <code>@MainActor</code> 化）。セッション保管は <code>InMemorySessionStore</code> を注入してテストする。</p>
 
   <!-- ======= AVPLAYER ======= -->
-  <h2 id="avplayer">7. 音声再生（AVPlayer）設計</h2>
+  <h2 id="avplayer">8. 音声再生（AVPlayer）設計 <span class="p1-badge">TASK 6 未着手</span></h2>
 
-  <p><code>AudioPlayerState</code>（<code>@Observable</code>）は <code>AVPlayer</code> をラップし、再生対象エピソード・再生中フラグ・現在位置・総再生時間・再生速度を保持する。再生開始（<code>play</code>）は次の手順で行う。</p>
+  <p><code>AudioPlayerState</code>（<code>ObservableObject</code>）は <code>AVPlayer</code> をラップし、再生対象エピソード・再生中フラグ・現在位置・総再生時間・再生速度を保持する。<code>AppState</code> 経由でアプリ全体に 1 つだけ共有する（Web の単一 <code>&lt;audio&gt;</code> 相当）。再生開始は次の手順。</p>
   <ol>
     <li>既存の再生を停止・クリーンアップする。</li>
     <li><code>AVAudioSession</code> を <code>.playback</code> カテゴリ・<code>.spokenAudio</code> モードで有効化し、バックグラウンド再生に対応する。</li>
-    <li>再生直前に GET /podcasts/{id} でエピソードを再取得し、失効対策済みの署名付き URL で <code>AVPlayerItem</code> を生成する。保存済み再生位置へ seek し、再生速度（rate）を設定して再生を開始する。</li>
-    <li>0.5 秒ごとに現在の再生位置と総再生時間（duration）を更新する。</li>
-    <li>約 10 秒ごとに再生位置を UserDefaults（キー: <code>podcast_position:{id}</code>）に保存する。サーバーへは送信しない。</li>
+    <li>再生直前に <code>GET /podcasts/{id}</code> で再取得し、失効対策済みの署名付き URL で <code>AVPlayerItem</code> を生成。保存済み再生位置へ seek し、速度（rate）を設定して再生。</li>
+    <li>約 10 秒ごとに再生位置を UserDefaults（キー <code>podcast_position:{id}</code>）に保存する。サーバーへは送信しない。</li>
   </ol>
-  <p>その他の操作として、<code>togglePlayPause</code> は再生／一時停止を切り替え、<code>seek</code> は指定秒へ再生位置を移動し、<code>setSpeed</code> は再生速度を変更する（再生中のみ実際の rate へ反映）。クリーンアップ処理では位置保存タスクのキャンセル・時間オブザーバの解除・プレイヤーの停止と解放・再生中フラグの解除を行う。</p>
+  <p>ロック画面操作は <code>MPNowPlayingInfoCenter</code> / <code>MPRemoteCommandCenter</code>（play/pause/skipForward+30/skipBackward−15）、割り込みは <code>AVAudioSession.interruptionNotification</code> を購読し中断で一時停止・<code>.shouldResume</code> で再開する。</p>
 
   <h3>バックグラウンド再生設定</h3>
-  <p>Info.plist の <code>UIBackgroundModes</code> に <code>audio</code> を追加。<code>AVAudioSession.Category.playback</code> + <code>AVAudioSession.Mode.spokenAudio</code> でポッドキャスト向けの設定にする。</p>
+  <p>Info.plist の <code>UIBackgroundModes</code> に <code>audio</code> を追加。<code>AVAudioSession.Category.playback</code> + <code>AVAudioSession.Mode.spokenAudio</code> でポッドキャスト向けに設定する。</p>
 
   <!-- ======= FILE STRUCTURE ======= -->
-  <h2 id="filestructure">8. ファイル構成</h2>
+  <h2 id="filestructure">9. ファイル構成</h2>
 
-  <p>ルートディレクトリ <code>ios/TechNewsPodcast/</code> 配下の構成は次のとおり。</p>
+  <p>Xcode 生成構造に合わせ、アプリソースを <code>ios/NewsListenApp/NewsListenApp/</code>、テストを <code>ios/NewsListenApp/NewsListenAppTests/</code> に置く。アプリソース配下を機能単位で分割する。</p>
   <table>
     <tr><th>ディレクトリ / ファイル</th><th>含む要素・責務</th></tr>
-    <tr><td>TechNewsPodcastApp.swift</td><td>@main エントリポイント</td></tr>
-    <tr><td>ContentView.swift</td><td>TabView（Feed/Podcast/Subscriptions/Settings）</td></tr>
-    <tr><td>InitialSetupView.swift</td><td>API 未設定時の初回セットアップ画面</td></tr>
-    <tr><td>AppState.swift</td><td>グローバル状態（@Observable）</td></tr>
-    <tr><td>Models/</td><td>Codable モデル群</td></tr>
-    <tr><td>Models/Article.swift</td><td>Codable: フィード記事</td></tr>
-    <tr><td>Models/Podcast.swift</td><td>Codable: エピソード</td></tr>
-    <tr><td>Models/RssSource.swift</td><td>Codable: RSS ソース</td></tr>
-    <tr><td>Models/Settings.swift</td><td>Codable: 設定</td></tr>
-    <tr><td>Networking/</td><td>ネットワーク層</td></tr>
-    <tr><td>Networking/APIClient.swift</td><td>URLSession ラッパー・全 API メソッド</td></tr>
-    <tr><td>Networking/APIEndpoint.swift</td><td>エンドポイント定義</td></tr>
-    <tr><td>Networking/APIError.swift</td><td>エラー型</td></tr>
-    <tr><td>Feed/</td><td>フィード機能</td></tr>
-    <tr><td>Feed/FeedView.swift</td><td>フィード画面</td></tr>
-    <tr><td>Feed/FeedViewModel.swift</td><td>フィード ViewModel</td></tr>
-    <tr><td>Feed/ArticleRowView.swift</td><td>記事行ビュー</td></tr>
-    <tr><td>Podcast/</td><td>ポッドキャスト機能</td></tr>
-    <tr><td>Podcast/PodcastView.swift</td><td>ポッドキャスト画面</td></tr>
-    <tr><td>Podcast/PodcastViewModel.swift</td><td>ポッドキャスト ViewModel</td></tr>
-    <tr><td>Podcast/PodcastRowView.swift</td><td>エピソード行ビュー</td></tr>
-    <tr><td>Podcast/AudioPlayerView.swift</td><td>再生コントロール UI</td></tr>
-    <tr><td>Podcast/AudioPlayerState.swift</td><td>AVPlayer ラッパー（@Observable）</td></tr>
-    <tr><td>Subscriptions/</td><td>RSS 購読管理（専用タブ）</td></tr>
-    <tr><td>Subscriptions/SubscriptionsView.swift</td><td>一覧 + 追加ボタン</td></tr>
-    <tr><td>Subscriptions/SubscriptionsViewModel.swift</td><td>購読 ViewModel</td></tr>
-    <tr><td>Subscriptions/SubscriptionRowView.swift</td><td>各行（スワイプ削除対応）</td></tr>
-    <tr><td>Subscriptions/AddSubscriptionSheet.swift</td><td>URL 追加モーダル</td></tr>
-    <tr><td>Settings/</td><td>設定機能</td></tr>
-    <tr><td>Settings/SettingsView.swift</td><td>設定画面</td></tr>
-    <tr><td>Settings/SettingsViewModel.swift</td><td>設定 ViewModel</td></tr>
-    <tr><td>Tests/</td><td>テスト群</td></tr>
-    <tr><td>Tests/APIClientTests.swift</td><td>API クライアントテスト</td></tr>
-    <tr><td>Tests/FeedViewModelTests.swift</td><td>フィード ViewModel テスト</td></tr>
-    <tr><td>Tests/PodcastViewModelTests.swift</td><td>ポッドキャスト ViewModel テスト</td></tr>
-    <tr><td>Tests/SubscriptionsViewModelTests.swift</td><td>RSS 追加・削除テスト</td></tr>
-    <tr><td>Tests/SettingsViewModelTests.swift</td><td>設定 ViewModel テスト</td></tr>
-  </table>
-
-  <h3>テスト方針</h3>
-  <table>
-    <tr><th>テスト対象</th><th>テスト内容</th></tr>
-    <tr><td>APIClient</td><td>モック URLSession でレスポンスデコード・エラーハンドリング</td></tr>
-    <tr><td>FeedViewModel</td><td>記事取得・Star 後のリスト除去・Dismiss 後のリスト除去</td></tr>
-    <tr><td>PodcastViewModel</td><td>一覧/詳細取得・再生直前の再取得（署名付き URL 失効対策）</td></tr>
-    <tr><td>SubscriptionsViewModel</td><td>追加成功・URL 重複 409 エラー表示・削除後のリスト更新</td></tr>
-    <tr><td>AudioPlayerState</td><td>speed 変更が AVPlayer.rate に反映される（モック AVPlayer）</td></tr>
+    <tr><td>NewsListenAppApp（ルート）</td><td>@main エントリ・AppState 生成・設定有無 + 認証状態によるルーティング・ContentView / InitialSetupView / LoginView</td></tr>
+    <tr><td>ContentView（ルート）</td><td>3 タブの TabView（Feed / Podcast / Settings）+ 再生中ミニプレイヤー（Task 6 予定）</td></tr>
+    <tr><td>AppState（ルート）</td><td>ObservableObject・@MainActor のグローバル共有状態（認証状態を含む）</td></tr>
+    <tr><td>Models/</td><td>Article / Podcast / RssSource / <strong>AuthModels</strong>（AuthUser / LoginResponse / AuthStatus 等）。いずれも Codable</td></tr>
+    <tr><td>Networking/</td><td>APIClient（@MainActor）/ APIEndpoint / APIError / URLSessionProtocol / <strong>SessionStore</strong>（KeychainSessionStore・InMemorySessionStore）</td></tr>
+    <tr><td>Auth/</td><td>LoginView（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）</td></tr>
+    <tr><td>Admin/</td><td>AdminUsersView（admin 限定）</td></tr>
+    <tr><td>Feed/</td><td>FeedView / FeedViewModel / ArticleRowView / SafariView</td></tr>
+    <tr><td>Podcast/</td><td>一覧・詳細・PodcastViewModel / 行ビュー / 全画面・ミニプレイヤー（音声再生は Task 6）</td></tr>
+    <tr><td>Settings/</td><td>SettingsView / SettingsViewModel（既定値 + RSS ソース管理を内包 + AccountSettingsView）</td></tr>
+    <tr><td>NewsListenAppTests/</td><td>APIClient・各 ViewModel・SessionStore 等のユニットテスト（MockURLSession / InMemorySessionStore 注入）</td></tr>
   </table>
 
   <div class="warn">
-    <strong>Phase 2 実装時の注意点</strong><br>
+    <strong>今後の課題</strong>
     <ul style="margin-top:8px; padding-left: 18px;">
-      <li>Keychain への API キー移行（UserDefaults は暗号化されない）</li>
-      <li>APNs Push 通知の実装（Podcast 生成完了通知）</li>
+      <li>音声再生（AVPlayer・Task 6）の実装、生成完了の APNs Push 通知</li>
       <li>オフライン再生のためのローカルキャッシュ（FileManager + Background Downloads）</li>
-      <li>OpenAI TTS への切り替えに伴う音声 URL 形式の変更対応</li>
+      <li>パスワードリセットのセルフサービス（メール）・ログイン試行のレートリミット（バックエンド側・<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a> の残課題）</li>
     </ul>
   </div>
 

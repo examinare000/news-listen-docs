@@ -63,6 +63,7 @@
     <a href="#infra">インフラ構成</a>
     <a href="#batch">定時バッチ処理</a>
     <a href="#ondemand">オンデマンド生成</a>
+    <a href="#auth">認証・ユーザー管理</a>
     <a href="#api">API エンドポイント</a>
     <a href="#db">Firestore データモデル</a>
     <a href="#tasks">Cloud Tasks 設定</a>
@@ -84,6 +85,8 @@
     <div class="badge">フレームワーク <span>FastAPI</span></div>
     <div class="badge">インフラ <span>Google Cloud</span></div>
     <div class="badge">リージョン <span>asia-northeast1</span></div>
+    <div class="badge">最終更新 <span>2026-06-23</span></div>
+    <div class="badge">認証 <span>セッション（ADR-013）反映</span></div>
   </div>
 
   <div class="warn">
@@ -319,10 +322,73 @@
     <tr><td>user_id</td><td>string</td><td>ユーザー ID（MVP = "default"）</td></tr>
   </table>
 
+  <!-- ======= AUTH ======= -->
+  <h2 id="auth">3.5 認証・ユーザー管理（ADR-013）</h2>
+
+  <div class="note">
+    <strong>方針:</strong> 基盤の <code>X-API-Key</code>（共有 API ゲート）は据え置いたまま、利用者はセッションベース認証でログインする方式を導入。
+    ロールは <code>admin</code> / <code>user</code> の 2 種で、データは利用者単位（<code>user_id</code> パーティション）で分離する。
+    これにより ADR-007 で前提としていた単一ユーザー（環境変数 <code>USER_ID</code> 固定）はマルチユーザーへ更新される（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）。
+  </div>
+
+  <h3>認証フローと責務</h3>
+  <table>
+    <tr><th>関心事</th><th>責務 / 契約</th></tr>
+    <tr><td>API ゲート</td><td>全リクエストに共有 <code>X-API-Key</code> を要求（基盤防御）。<code>/health</code> のみ免除。</td></tr>
+    <tr><td>ログイン</td><td>username + password を検証し、セッショントークンを発行。Web は Cookie、iOS はレスポンスボディでトークンを受け取る。</td></tr>
+    <tr><td>トークン抽出順序</td><td>① <code>Authorization: Bearer</code>（iOS） → ② Cookie <code>nl_session</code>（Web）の順で解決する。</td></tr>
+    <tr><td>セッション検証</td><td>受領トークンを SHA-256 でハッシュ化し、<code>sessions/{session_id}</code> と突合。無効・期限切れは <code>401</code>。期限切れは遅延削除する。</td></tr>
+    <tr><td>データ分離</td><td>認証済みセッション由来の <code>user_id</code> をデータパーティションキーとして利用（旧: 環境変数固定）。</td></tr>
+    <tr><td>ロール制御</td><td>ユーザー管理 API は <code>require_admin</code> で保護し、非 admin は <code>403</code>。</td></tr>
+  </table>
+
+  <h3>セキュリティ設計</h3>
+  <ul>
+    <li><strong>パスワード:</strong> bcrypt でハッシュ化して保存（平文・可逆形式は保存しない）。UTF-8 で 72 バイトを超える入力は bcrypt 仕様に合わせて切り詰める。</li>
+    <li><strong>セッショントークン:</strong> <code>secrets.token_urlsafe(32)</code> で生成。生トークンは保存せず、SHA-256 ハッシュ（= <code>session_id</code>）のみを Firestore に保存する。</li>
+    <li><strong>Cookie:</strong> <code>nl_session</code> は <code>httpOnly</code>。<code>Secure</code> 属性は <code>SESSION_COOKIE_SECURE</code> で制御（本番 true / ローカル http は false）。</li>
+    <li><strong>ログイン失敗:</strong> ユーザーの存在有無を伏せた汎用メッセージで <code>401</code> を返す（列挙攻撃対策）。</li>
+    <li><strong>エラー応答:</strong> 内部情報・トークン値をエラーメッセージに含めない。</li>
+    <li><strong>セッション即時失効:</strong> 降格（admin→user）・パスワードリセット・ユーザー削除のいずれでも、対象ユーザーの全セッションを <code>delete_sessions_for_user</code> で即時失効させる。</li>
+    <li><strong>最後の admin 保護:</strong> 唯一の admin の降格・削除は <code>409</code> で拒否する。</li>
+  </ul>
+
+  <h3>セキュリティヘルパー（shared/security.py）</h3>
+  <table>
+    <tr><th>関数</th><th>責務</th></tr>
+    <tr><td><code>hash_password</code> / <code>verify_password</code></td><td>bcrypt によるパスワードのハッシュ化・照合（72 バイト超は切り詰め）。</td></tr>
+    <tr><td><code>generate_session_token</code></td><td>セッションの生トークンを生成（<code>secrets.token_urlsafe(32)</code>）。</td></tr>
+    <tr><td><code>hash_token</code></td><td>生トークンを SHA-256 でハッシュ化し <code>session_id</code> を導出。</td></tr>
+  </table>
+
+  <h3>認証依存（api/dependencies.py）</h3>
+  <table>
+    <tr><th>依存</th><th>責務</th></tr>
+    <tr><td><code>get_current_user</code></td><td>トークン抽出（Bearer→Cookie）→ セッション検証。無効は <code>401</code>、<code>expires_at</code> 超過は遅延削除のうえ <code>401</code>。</td></tr>
+    <tr><td><code>get_user_id</code></td><td>ログインセッション由来の <code>user_id</code> を返す（旧: 環境変数 <code>USER_ID</code> 固定。ADR-007 の単一ユーザー前提を更新）。</td></tr>
+    <tr><td><code>require_admin</code></td><td>ロールが <code>admin</code> でない場合は <code>403</code>。ユーザー管理 API に適用。</td></tr>
+  </table>
+
+  <h3>初期データ投入</h3>
+  <p>
+    <code>backend/scripts/seed_users.py</code> が環境変数から初期 admin / user を冪等に投入する
+    （<code>INITIAL_ADMIN_USERNAME</code> / <code>INITIAL_ADMIN_PASS</code>・<code>INITIAL_USER_USERNAME</code> / <code>INITIAL_USER_PASSWORD</code>）。
+  </p>
+  <div class="warn"><strong>運用必須:</strong> 初回デプロイ後は既定パスワードを必ず変更すること。</div>
+
+  <h3>環境変数（認証関連）</h3>
+  <table>
+    <tr><th>変数</th><th>既定</th><th>説明</th></tr>
+    <tr><td><code>SESSION_TTL_HOURS</code></td><td>168（7 日）</td><td>セッションの有効期間。</td></tr>
+    <tr><td><code>SESSION_COOKIE_SECURE</code></td><td>true</td><td>Cookie の <code>Secure</code> 属性。ローカル http では false。</td></tr>
+    <tr><td><code>INITIAL_ADMIN_USERNAME</code> / <code>INITIAL_ADMIN_PASS</code></td><td>—</td><td>初期 admin の資格情報（seed 用）。</td></tr>
+    <tr><td><code>INITIAL_USER_USERNAME</code> / <code>INITIAL_USER_PASSWORD</code></td><td>—</td><td>初期 user の資格情報（seed 用）。</td></tr>
+  </table>
+
   <!-- ======= API ======= -->
   <h2 id="api">4. API エンドポイント仕様</h2>
 
-  <div class="note">全エンドポイントに <code>X-API-Key: {key}</code> ヘッダーが必要。<code>/health</code> のみ認証不要。</div>
+  <div class="note">基盤の API ゲートとして全エンドポイントに <code>X-API-Key: {key}</code> ヘッダーが必要（<code>/health</code> のみ認証不要）。これに加え、利用者はセッションベース認証でログインし、データは利用者単位で分離される（<a href="#auth">「9. 認証・ユーザー管理」</a>／ADR-013）。<code>/feed</code>・<code>/articles</code>・<code>/podcasts</code> 等の利用者向け API はログインセッションに紐づくユーザーのデータを返す。</div>
 
   <h3>Feed</h3>
   <div class="endpoint-block">
@@ -399,6 +465,48 @@
     <strong>既定設定はサーバー保存しない:</strong> 既定難易度・既定再生速度の取得/更新 API（旧 <code>GET·POST /settings</code>）は実装しない。クライアントが端末ローカル（Web=localStorage、iOS=UserDefaults）に保存する（<a href="../adr/008-ios-local-state-persistence.md">ADR-008</a>）。難易度は記事スター時の Podcast 生成パラメータとして扱われ、生成済み Podcast の <code>difficulty</code> は不変。
   </div>
 
+  <h3>認証（Auth）</h3>
+  <div class="endpoint-block">
+    <h4><span class="method post">POST</span> /auth/login</h4>
+    <p>username + password を検証し、セッショントークンを発行する。Web には <code>Set-Cookie: nl_session</code>（httpOnly、<code>Secure</code> は <code>SESSION_COOKIE_SECURE</code> 制御）を返し、iOS にはレスポンスボディの <code>token</code> を返す。</p>
+    <table>
+      <tr><th>エラー</th><th>説明</th></tr>
+      <tr><td>401</td><td>資格情報が不正（ユーザーの存在は伏せた汎用メッセージ）</td></tr>
+    </table>
+  </div>
+  <div class="endpoint-block">
+    <h4><span class="method post">POST</span> /auth/logout</h4>
+    <p>現在のセッションを失効させる（冪等）。</p>
+  </div>
+  <div class="endpoint-block">
+    <h4><span class="method get">GET</span> /auth/me</h4>
+    <p>ログイン中ユーザーの情報（username / role / display_name）を返す。</p>
+  </div>
+  <div class="endpoint-block">
+    <h4><span class="method patch">PATCH</span> /auth/me</h4>
+    <p>自身の <code>display_name</code> を更新する。</p>
+  </div>
+  <div class="endpoint-block">
+    <h4><span class="method post">POST</span> /auth/password</h4>
+    <p>自身のパスワードを変更する。<code>current_password</code> の検証を必須とする。</p>
+  </div>
+
+  <h3>ユーザー管理（Admin・require_admin 限定）</h3>
+  <div class="note"><strong>権限:</strong> 以下は <code>require_admin</code> で保護され、非 admin は <code>403</code>。なお既存のおすすめサイト管理 <code>/admin/featured-sites</code> CRUD は従来どおり共有 <code>X-API-Key</code> のまま据え置く（<a href="../adr/012-featured-sites-and-onboarding.md">ADR-012(C)</a>）。ユーザー管理のみ <code>require_admin</code> を要求する。</div>
+  <div class="endpoint-block">
+    <h4><span class="method get">GET</span> /admin/users · <span class="method post">POST</span> /admin/users</h4>
+    <p>ユーザー一覧の取得・新規ユーザー作成。</p>
+  </div>
+  <div class="endpoint-block">
+    <h4><span class="method patch">PATCH</span> /admin/users/{username} · <span class="method delete">DELETE</span> /admin/users/{username}</h4>
+    <p>ロール変更・パスワードリセット・表示名変更・削除。</p>
+    <table>
+      <tr><th>挙動 / エラー</th><th>説明</th></tr>
+      <tr><td>409</td><td>唯一の admin の降格・削除（最後の admin 保護）</td></tr>
+      <tr><td>セッション失効</td><td>降格（admin→user）・PW リセット（<code>new_password</code> 指定）・削除のいずれでも対象ユーザーの全セッションを <code>delete_sessions_for_user</code> で即時失効</td></tr>
+    </table>
+  </div>
+
   <h3>内部エンドポイント（Cloud Tasks からのみ）</h3>
   <div class="endpoint-block">
     <h4><span class="method post">POST</span> /internal/generate-podcast</h4>
@@ -421,8 +529,33 @@
     <tr><td>content_fetched_at</td><td>timestamp | null</td><td>本文フェッチ日時（未取得時 null）</td></tr>
   </table>
 
+  <h3>users コレクション（ADR-013）</h3>
+  <p>ドキュメント ID は <code>username</code>（ログイン ID 兼キー・不変スラッグ）。</p>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+    <tr><td>username</td><td>string</td><td>ログイン ID 兼ドキュメントキー（不変スラッグ）</td></tr>
+    <tr><td>user_id</td><td>string</td><td>データパーティションキー（username とは独立に採番）</td></tr>
+    <tr><td>password_hash</td><td>string</td><td>bcrypt ハッシュ（平文は保存しない）</td></tr>
+    <tr><td>role</td><td>"admin" | "user"</td><td>権限ロール</td></tr>
+    <tr><td>display_name</td><td>string</td><td>表示名</td></tr>
+    <tr><td>created_at</td><td>timestamp</td><td>作成日時</td></tr>
+    <tr><td>updated_at</td><td>timestamp</td><td>更新日時</td></tr>
+  </table>
+
+  <h3>sessions コレクション（ADR-013）</h3>
+  <p>ドキュメント ID は <code>session_id</code>（= 発行トークンの SHA-256 ハッシュ。生トークンは保存しない）。</p>
+  <table>
+    <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+    <tr><td>session_id</td><td>string</td><td>発行トークンの SHA-256 ハッシュ（ドキュメントキー）</td></tr>
+    <tr><td>user_id</td><td>string</td><td>セッション所有者の user_id</td></tr>
+    <tr><td>username</td><td>string</td><td>username（キャッシュ）</td></tr>
+    <tr><td>role</td><td>"admin" | "user"</td><td>ロール（キャッシュ）</td></tr>
+    <tr><td>created_at</td><td>timestamp</td><td>発行日時</td></tr>
+    <tr><td>expires_at</td><td>timestamp</td><td>失効日時（<code>SESSION_TTL_HOURS</code> 由来。超過時は遅延削除）</td></tr>
+  </table>
+
   <h3>userPrefs コレクション</h3>
-  <p>ドキュメント ID は <code>user_id</code>（MVP = "default"）。</p>
+  <p>ドキュメント ID は <code>user_id</code>（マルチユーザー化により利用者ごとに分離。ADR-013）。</p>
   <table>
     <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
     <tr><td>user_id</td><td>string</td><td>ユーザー ID</td></tr>
@@ -505,7 +638,8 @@
 
   <table>
     <tr><th>ディレクトリ / ファイル</th><th>責務</th></tr>
-    <tr><td>shared/models.py</td><td>dataclass: Article / UserPrefs / Recommendation / Podcast</td></tr>
+    <tr><td>shared/models.py</td><td>dataclass: Article / UserPrefs / Recommendation / Podcast / User / Session</td></tr>
+    <tr><td>shared/security.py</td><td>パスワードハッシュ（bcrypt）・セッショントークン生成 / ハッシュ化（ADR-013）</td></tr>
     <tr><td>shared/firestore_client.py</td><td>Firestore CRUD ヘルパー</td></tr>
     <tr><td>shared/storage_client.py</td><td>Cloud Storage アップロード</td></tr>
     <tr><td>shared/gemini_client.py</td><td>Gemini テキスト生成 + TTS ラッパー</td></tr>
@@ -515,6 +649,9 @@
     <tr><td>jobs/recommendation/main.py</td><td>レコメンド Job エントリポイント</td></tr>
     <tr><td>jobs/recommendation/recommender.py</td><td>Gemini でスコア計算</td></tr>
     <tr><td>api/main.py</td><td>FastAPI app + API キー認証</td></tr>
+    <tr><td>api/dependencies.py</td><td>認証依存: get_current_user / get_user_id / require_admin（ADR-013）</td></tr>
+    <tr><td>api/routers/auth.py</td><td>POST /auth/login·logout、GET·PATCH /auth/me、POST /auth/password</td></tr>
+    <tr><td>api/routers/admin.py</td><td>ユーザー管理 CRUD（/admin/users・require_admin 限定）</td></tr>
     <tr><td>api/routers/feed.py</td><td>GET /feed</td></tr>
     <tr><td>api/routers/articles.py</td><td>POST /articles/{id}/star|dismiss</td></tr>
     <tr><td>api/routers/podcasts.py</td><td>GET /podcasts, GET /podcasts/{id}</td></tr>
@@ -523,6 +660,7 @@
     <tr><td>api/podcast_generator/script_generator.py</td><td>Gemini でスクリプト生成</td></tr>
     <tr><td>api/podcast_generator/tts_generator.py</td><td>Gemini TTS で音声生成・結合</td></tr>
     <tr><td>api/schemas.py</td><td>Pydantic リクエスト/レスポンス</td></tr>
+    <tr><td>scripts/seed_users.py</td><td>初期 admin / user の冪等投入（ADR-013）</td></tr>
     <tr><td>tests/</td><td>各モジュールの単体テスト（models / rss_fetcher / content_extractor / recommender / script_generator / tts_generator / api_feed / api_articles / api_podcasts / api_settings）</td></tr>
     <tr><td>Dockerfile.jobs / Dockerfile.api</td><td>Cloud Run Job / API 用コンテナ定義</td></tr>
     <tr><td>requirements.txt</td><td>Python 依存パッケージ</td></tr>
