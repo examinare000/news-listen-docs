@@ -64,4 +64,4 @@
 - **iOS**: `SessionStore`（Keychain `kSecAttrAccessibleAfterFirstUnlock`）にトークンを保管し、`APIClient` が `Authorization: Bearer` で送出。起動ゲートで `refreshAuth()`→未認証なら `LoginView`、設定に `AccountSettingsView`、`AdminUsersView` を追加。
 - **初期データ**: `backend/scripts/seed_users.py` が環境変数（`INITIAL_ADMIN_USERNAME`/`INITIAL_ADMIN_PASS`・`INITIAL_USER_USERNAME`/`INITIAL_USER_PASSWORD`）から初期ユーザーを冪等投入。**初回デプロイ後に必ず既定パスワードを変更**すること。
 - **新規環境変数**: `SESSION_TTL_HOURS`（既定 168）・`SESSION_COOKIE_SECURE`（既定 true、ローカル開発は false）・上記初期ユーザー4変数（`.env.example` 参照）。
-- **残課題**: パスワードリセットのセルフサービス（メール送信）・ログイン試行のレートリミット・監査ログは本 ADR の範囲外。必要が生じた時点で新 ADR で上書きする。
+- **残課題**: パスワードリセットのセルフサービス（メール送信）は本 ADR の範囲外。監査ログは本 ADR の範囲外。ログイン試行のレートリミットは [ADR-014](014-login-rate-limiting.md) で解決済み。
