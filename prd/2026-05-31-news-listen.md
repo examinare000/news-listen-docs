@@ -2,8 +2,8 @@
 
 **バージョン:** 1.4  
 **作成日:** 2026-05-31  
-**最終更新:** 2026-06-16  
-**ステータス:** マルチレポ化完了（web, backend, ios, docs を独立リポジトリ化）。バックエンド実装完了・テスト 90件パス / GCP セットアップ完了 / Cloud Run デプロイ完了 / iOS アプリ基盤構築中。
+**最終更新:** 2026-06-23  
+**ステータス:** マルチレポ化完了（web, backend, ios, docs を独立リポジトリ化）。バックエンド実装完了・GCP セットアップ / Cloud Run デプロイ完了 / iOS アプリ基盤構築中。**セッションベース認証とマルチユーザー管理（ログイン）を backend / Web / iOS に導入済み（[ADR-013](../adr/013-session-auth-and-user-management.md)）** — 単一ユーザー前提（ADR-007）から更新。
 **想定ユーザー数:** 1〜5人（個人・ファミリー利用）
 
 ---
@@ -140,6 +140,20 @@ Cloud Tasks キューへタスク投入
 | 日次ダイジェスト設定 | ON/OFF、対象記事数（3〜10件） | P1 |
 | ストレージ管理 | キャッシュ済み音声のサイズ確認・一括削除 | P1 |
 
+### 5.4 アカウント・ユーザー管理（ログイン）
+
+セッションベース認証を導入し、利用者ごとにログインして本人を識別する（設計は [ADR-013](../adr/013-session-auth-and-user-management.md)）。当初フェーズ2想定だった「Firebase Auth によるマルチユーザー管理」を、既存スタック内の独自セッション方式で前倒し実装した。
+
+| 機能 | 詳細 | 優先度 |
+|------|------|--------|
+| ログイン / ログアウト | username + パスワードでログイン。失敗時はユーザー存在を伏せた汎用メッセージ | P0 |
+| セッション維持 | Web=httpOnly Cookie / iOS=Keychain にトークン保持。既定 TTL 7日 | P0 |
+| 入口ゲート | 未ログイン時はログイン画面を提示し、本体機能をブロック | P0 |
+| セルフサービス | 表示名変更・パスワード変更（現在 PW 検証必須） | P0 |
+| 管理者によるユーザー管理 | admin ロールがユーザーの作成・一覧・ロール変更・PW リセット・削除を実行 | P0 |
+| 自己ロックアウト防止 | 最後の admin の降格・削除を拒否（409）。自分自身の権限変更・削除ボタンは非表示 | P0 |
+| セッション失効 | 降格・PW リセット・削除時に対象ユーザーの全セッションを即時失効 | P0 |
+
 ---
 
 ## 6. 非機能要件
@@ -149,7 +163,7 @@ Cloud Tasks キューへタスク投入
 | **可用性** | バッチ処理は毎日 06:00 JST に自動実行。06:30 JST までに完了すること |
 | **レスポンス** | Star 操作後 2分以内に Podcast 生成完了（Cloud Tasks 非同期処理） |
 | **コスト** | 月次 5USD 以下（1ユーザー・1日5エピソード相当）。詳細は [10節](#10-コスト見積もり) 参照 |
-| **セキュリティ** | iOS アプリ → バックエンド通信は固定 API キー（GCP Secret Manager 管理）で認証。iOS アプリに API キーをハードコードしない |
+| **セキュリティ** | 利用者はセッションベース認証でログイン（パスワードは bcrypt、トークンは不透明・サーバ側で即時失効可、[ADR-013](../adr/013-session-auth-and-user-management.md)）。基盤の共有 API キー（GCP Secret Manager 管理）は据え置き、アプリにハードコードしない |
 | **データ保持** | 生成音声ファイルは 30日後に Cloud Storage Lifecycle ルールで自動削除 |
 | **エラーハンドリング** | TTS 並列処理で一部セリフが失敗した場合、リトライ後も失敗したセリフはスキップして結合。Firestore のステータスを `partial_failed` で記録 |
 | **スケーラビリティ** | 個人利用（〜5人）前提。Cloud Tasks のレートリミット設定で TTS API のレート超過を防ぐ |
@@ -205,6 +219,13 @@ Cloud Tasks キューへタスク投入
 | PATCH | `/podcasts/:id/position` | 再生位置更新 |
 | GET | `/settings` | ユーザー設定取得 |
 | PUT | `/settings` | ユーザー設定更新 |
+| POST | `/auth/login` `/auth/logout` | ログイン / ログアウト（認証不要） |
+| GET / PATCH | `/auth/me` | ログイン中ユーザー取得 / 表示名更新 |
+| POST | `/auth/password` | パスワード変更（現在 PW 検証必須） |
+| GET / POST | `/admin/users` | ユーザー一覧 / 作成（admin 限定） |
+| PATCH / DELETE | `/admin/users/{username}` | ロール変更・PW リセット / 削除（admin 限定） |
+
+> 認証は ADR-013 のセッション方式。Web は httpOnly Cookie、iOS は `Authorization: Bearer` でトークンを送る。
 
 ---
 
@@ -272,6 +293,33 @@ Cloud Tasks キューへタスク投入
   "createdAt": "timestamp",
   "completedAt": "timestamp | null",
   "userId": "string"
+}
+```
+
+### users（認証・ADR-013）
+
+```json
+{
+  "username": "string",            // ログインID 兼ドキュメントキー（小文字スラッグ・不変）
+  "userId": "string",              // データパーティションキー（username と独立に採番）
+  "passwordHash": "string",        // bcrypt ハッシュ（平文は保存しない）
+  "role": "admin" | "user",
+  "displayName": "string",
+  "createdAt": "timestamp",
+  "updatedAt": "timestamp"
+}
+```
+
+### sessions（認証・ADR-013）
+
+```json
+{
+  "sessionId": "string",           // 発行トークンの SHA-256 ハッシュ（生トークンは保存しない）
+  "userId": "string",
+  "username": "string",            // 権限判定用キャッシュ
+  "role": "admin" | "user",
+  "createdAt": "timestamp",
+  "expiresAt": "timestamp"         // TTL（既定 7日）
 }
 ```
 
@@ -355,7 +403,7 @@ Gemini にはセリフ単位の構造化 JSON を出力させ、そのまま TTS
 - 日次ダイジェスト（複数記事を1本にまとめて毎朝自動生成）
 - オフライン再生（音声ファイルのデバイスキャッシュと同期）
 - ストレージ管理（キャッシュ容量確認・削除）
-- Firebase Auth によるマルチユーザー管理の本格化
+- ~~Firebase Auth によるマルチユーザー管理の本格化~~ → **実装済み**。Firebase Auth ではなく既存スタック内の独自セッション方式を採用（[ADR-013](../adr/013-session-auth-and-user-management.md)・§5.4）。残課題はパスワードリセットのセルフサービス（メール）・ログイン試行のレートリミット・監査ログ
 
 #### Web フロントエンド残課題（2026-06-12 追記 — WebUI リスタイル完了時の棚卸し）
 
@@ -388,7 +436,7 @@ Web 単独で追加可能なもの:
 | 音声合成 | Gemini TTS ではなく OpenAI TTS + Google TTS | Gemini ネイティブ音声は複数話者の個別制御が難しい。OpenAI TTS で話者A/Bを並列処理することで速度・品質を両立 |
 | 関連ニュース検索 | MVP では同一 RSS コーパス内のタイトル類似度比較（Embeddings の簡易比較） | 外部 Web 検索 API は費用が高い。自コーパス内で十分な関連記事が見つかるケースが多い |
 | 記事本文フェッチ | RSS が全文配信しない場合は `newspaper3k`（Python）でスクレイピング | 軽量かつ主要メディアに対応済み。Cloud Run Jobs 内で動かすため依存管理も容易 |
-| API 認証 | 固定 API キー（GCP Secret Manager 経由）。iOS アプリに直接ハードコードしない | 個人利用のため Firebase Auth のような複雑な認証は過剰。Secret Manager で安全にバックエンドへ注入 |
+| API 認証 | 利用者はセッションベース認証（bcrypt + 不透明トークン + サーバ側 Session、admin/user ロール）でログイン。基盤の共有 API キーは Secret Manager 経由で据え置き | 1〜5 人規模では Firebase Auth は過剰だが、本人識別・admin によるユーザー管理は必要。既存スタック内で完結する独自セッション方式を採用（[ADR-013](../adr/013-session-auth-and-user-management.md)） |
 | エラー時の挙動 | TTS 並列処理で一部失敗した場合はスキップして結合し `partial_failed` でステータスを記録 | 全体を失敗にするより部分的でも完成物を提供する方がユーザー体験がよい |
 
 ---
@@ -400,5 +448,5 @@ Web 単独で追加可能なもの:
 | 1 | スクレイピング合法性 | 各サイトの利用規約・robots.txt の確認。個人利用の範囲内かどうか |
 | 2 | OpenAI TTS の話者バリエーション | alloy / echo / fable / nova / onyx / shimmer のどれを話者A/Bに割り当てるか。音質テストが必要 |
 | 3 | Push 通知実装方式 | APNs + Firebase Cloud Messaging vs Cloud Run からの直接 APNs 呼び出し |
-| 4 | ユーザー識別子 | MVP では UUID を端末ローカルで生成して固定。フェーズ2以降に Firebase Auth へ移行するか |
+| 4 | ~~ユーザー識別子~~（解決済み） | ログインユーザーの `userId`（`users` コレクション・ADR-013）で識別する方式に確定。端末ローカル UUID / Firebase Auth 案は廃止 |
 | 5 | 関連ニュース品質 | タイトル類似度での関連記事紐付けが実用的に機能するか。本文 Embedding が必要かは実装後に評価 |
