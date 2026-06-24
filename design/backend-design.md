@@ -284,6 +284,19 @@ sequenceDiagram
 
 グローバルの `X-API-Key` は `hmac.compare_digest` による**定数時間比較**で検証する（タイミング攻撃対策）。
 
+### CORS・セキュリティヘッダ（[ADR-016](../adr/016-cors-and-security-headers.md)）
+
+ブラウザからの別オリジン直接アクセスを安全に許可しつつ、httpOnly Cookie 認証の防御（クリックジャッキング・MIME スニッフィング対策）を補完する。`api/main.py` で **CORS（内側）→ SecurityHeaders（外側）** の順にミドルウェアを登録する（Starlette は逆順適用。最外層となる SecurityHeaders がプリフライト応答にもヘッダを付与し、CORS ヘッダは上書きしない）。
+
+| 観点 | 設計 |
+|-----|------|
+| CORS 許可オリジン | `CORS_ALLOWED_ORIGINS`（カンマ区切り）を `build_cors_options`（`api/cors_config.py`）で解析。未設定/空は**全拒否**（安全側）。`*` 不使用、`allow_credentials=True` |
+| CORS メソッド/ヘッダ | `allow_methods`=`GET/POST/PUT/PATCH/DELETE/OPTIONS`（`PATCH`/`PUT` は実使用中）。`allow_headers`=`X-API-Key`・`Authorization`・`Content-Type` |
+| セキュリティヘッダ | `build_security_headers`（`api/middleware/security_headers.py`）が構築し `SecurityHeadersMiddleware` が全レスポンスに付与。CSP（既定 `default-src 'none'; frame-ancestors 'none'`）・`X-Frame-Options: DENY`・`X-Content-Type-Options: nosniff`・`Referrer-Policy: no-referrer` |
+| HSTS | `SECURITY_HSTS_ENABLED` が真のときのみ `Strict-Transport-Security: max-age={SECURITY_HSTS_MAX_AGE}; includeSubDomains` を付与（既定無効。ローカル HTTP を壊さない） |
+| 環境変数 | `CORS_ALLOWED_ORIGINS`・`SECURITY_CSP`・`SECURITY_X_FRAME_OPTIONS`・`SECURITY_X_CONTENT_TYPE_OPTIONS`・`SECURITY_REFERRER_POLICY`・`SECURITY_HSTS_ENABLED`・`SECURITY_HSTS_MAX_AGE`（`.env.example` 参照） |
+| ADR-001 との関係 | バックエンド CORS の用意により、Web の BFF プロキシ撤去（[ADR-001](../adr/001-web-bff-proxy.md) フェーズ2残課題）に着手可能となる |
+
 ### ログイン試行レートリミット（[ADR-014](../adr/014-login-rate-limiting.md)）
 
 ブルートフォース対策。`POST /auth/login` でパスワード検証**前**にロック状態を確認する。
