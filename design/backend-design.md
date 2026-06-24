@@ -323,6 +323,37 @@ DoS 攻撃対策。全エンドポイント（`/feed`・`/articles`・`/podcasts
 | エラーレスポンス | 429 Too Many Requests。ボディ: `{ "detail": "Too many requests. Please try again later." }`。ヘッダ: `Retry-After: {秒数}`。トークン・IP・user_id など内部詳細は含めない |
 | 超過試行の非カウント | max_requests 超過時、DB ドキュメントを更新しない（count は据え置き）。制限中クライアントの再試行が他ユーザーをカウント消費しない |
 
+### CSRF 対策（Double-submit cookie）（[ADR-019](../adr/019-csrf-double-submit-cookie.md)）
+
+ブラウザが自動的に Cookie をリクエストに付与する仕様を悪用した CSRF 攻撃を防止する。Web のモダンブラウザからの状態変更リクエスト（POST / PUT / DELETE）に対して、**Cookie と Header の両方にトークンを要求**し、両者が一致する正規リクエストのみを受け入れる。
+
+| 観点 | 設計 |
+|-----|------|
+| 方式 | Double-submit cookie（ステートレス）。`secrets.token_urlsafe(32)` で生成した URL-safe Base64 文字列を Cookie `csrf_token`（非 httpOnly）と `X-CSRF-Token` ヘッダに配置。両者が `hmac.compare_digest` で一致すれば正規リクエスト |
+| Cookie 属性 | `HttpOnly: False`（JS アクセス可）・`SameSite: Lax`・`Secure: {SESSION_COOKIE_SECURE 準拠}`・`Max-Age: 604800`（7 日） |
+| ミドルウェア | ASGI `CsrfMiddleware`（`api/middleware/csrf.py`）。ただし以下は免除: 安全メソッド（GET/HEAD/OPTIONS）・Bearer 認証（iOS）・免除パス（既定 `/auth/login`） |
+| 配置 | `api/main.py` で **CSRF（内側）→ SecurityHeaders（外側）** の順でミドルウェア登録。CSRF は OPTIONS を免除するため CORS 内側に置き、プリフライト短絡応答が CSRF チェックを受けない |
+| 発行タイミング | ログイン成功時（`POST /auth/login` レスポンス）+ 補填（`GET /auth/me` で未発行時に新規発行） |
+| 環境変数 | `CSRF_PROTECTION_ENABLED`（既定 false。本番で true）・`CSRF_EXEMPT_PATHS`（既定 `/auth/login`・カンマ区切り・未設定で安全側へ縮退） |
+| 実装 | `backend/api/middleware/csrf.py`（トークン生成・検証・ミドルウェア）・`backend/api/main.py`（登録）・`web/lib/api.ts`（Header 付与）・`web/app/api/backend/[...path]/route.ts`（BFF パススルー） |
+| iOS | Bearer 認証のため CSRF 不適用。免除条件で自動スキップ |
+
+### 生成完了通知の送信基盤（Web Push / VAPID）（[ADR-020](../adr/020-push-notification-web-push.md)）
+
+Podcast 生成完了時にユーザーへ Web Push で非同期通知する。W3C 標準 Web Push（VAPID）を採用し、プロトコル抽象で将来 iOS APNs を差し込める。
+
+| 観点 | 設計 |
+|-----|------|
+| 送信機構 | Protocol ベース `Notifier`（`shared/notifier.py`）の 2 実装: `WebPushNotifier`（VAPID で Web Push 送信）・`NoOpNotifier`（no-op・ローカル/テスト安全） |
+| 購読 API | Firestore `pushSubscriptions` コレクション。3 エンドポイント: `GET /notifications/vapid-public-key`（未設定 404）・`POST /notifications/subscriptions`（W3C 標準形式・冪等 upsert）・`DELETE /notifications/subscriptions?endpoint=...`（冪等） |
+| Firestore スキーマ | `pushSubscriptions/{doc_id}`：`{ user_id, endpoint, p256dh, auth, created_at }`。doc_id は `sha256(endpoint)`で一意化 |
+| 送信タイミング | ジョブ完了時（`jobs/podcast_generator/main.py`）にインライン送信。失敗は warning のみで非致命（ジョブは成功）。購読なければ no-op |
+| 失効掃除 | 送信時に 404/410 エラーなら自動削除（Firestore ゴミ溜め防止） |
+| ペイロード | `{ title, body, url, podcast_id, article_id }`。Web の Service Worker が通知表示・クリック時に URL へ遷移 |
+| 環境変数 | `VAPID_PUBLIC_KEY`・`VAPID_PRIVATE_KEY`・`VAPID_CLAIMS_EMAIL`（`.env.example` プレースホルダのみ）。未設定で NoOpNotifier に自動降格 |
+| Web 実装 | Service Worker（`public/sw.js`・push イベント受信）・PushManager Hook（`hooks/useWebPushSubscription.ts`・状態機械・機能検出）・設定画面に購読 ON/OFF トグル |
+| 拡張性 | `Notifier` Protocol で `ApnsNotifier` を将来実装可能。ジョブコード不変 |
+
 ### 監査ログ（[ADR-015](../adr/015-audit-logging.md)）
 
 「誰がいつ何をしたか」を事後追跡するため、認証イベントと admin 操作を `auditLogs` コレクションへ追記する。記録の意思決定は薄いサービス層 `AuditLogger`（`api/audit.py`）に集約し、各ルータからは1行の `record(...)` 呼び出しだけにする。
