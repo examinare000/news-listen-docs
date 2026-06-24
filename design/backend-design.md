@@ -307,6 +307,22 @@ sequenceDiagram
 | 挙動 | 窓内（`LOGIN_RATELIMIT_WINDOW_SECONDS`=900）で上限（`LOGIN_RATELIMIT_MAX_ATTEMPTS`=5）超過 → ロック（`LOGIN_RATELIMIT_LOCKOUT_SECONDS`=900）。ロック中は `429` + `Retry-After` |
 | 状態遷移 | 失敗で `register_failed_login` 加算、成功で `clear_login_attempts` リセット。`MAX_ATTEMPTS=0` で無効化（開発用） |
 
+### 汎用 API レートリミット（[ADR-018](../adr/018-generic-api-rate-limiting.md)）
+
+DoS 攻撃対策。全エンドポイント（`/feed`・`/articles`・`/podcasts` 等）と計算負荷が高いエンドポイント（`/articles/{id}/star`）に対して、user 単位 + IP 単位の 2 層制御を適用する。
+
+| 観点 | 設計 |
+|-----|------|
+| スキーマ | Firestore 新規コレクション `rateLimits/{doc_id}`。doc_id = `f"rateLimits_{key}"`（`key` = `"api:ip:{hash}"` or `"api:user:{user_id}"` 等）。スキーマ: `{ "key": str, "count": int, "window_start": timestamp }` |
+| 集計単位 | user 軸（セッション由来の `user_id`）+ IP 軸（SHA-256 ハッシュ化した `X-Forwarded-For`・直接接続時は `request.client.host`）。ウィンドウ内で いずれか超過 → 429 |
+| 固定ウィンドウ | 経過秒数が `window_seconds` 以上で自動リセット（`consume_rate_limit` が原子的にチェック）。カウント値の一貫性はトランザクション保証 |
+| 既定値テーブル | `_DEFAULTS = { "api": (120, 60), "star": (10, 3600) }`。`api` は全エンドポイント、`star` は `POST /articles/{id}/star` 専用（計算負荷） |
+| 環境変数 | `API_RATELIMIT_MAX_REQUESTS`・`API_RATELIMIT_WINDOW_SECONDS`・`STAR_RATELIMIT_MAX_REQUESTS`・`STAR_RATELIMIT_WINDOW_SECONDS`（`.env.example` 参照）。`MAX_REQUESTS=0` で無効化（開発用） |
+| 実装 | `shared/firestore_client.py::consume_rate_limit`（トランザクション）+ `api/ratelimit.py::evaluate_rate_limit`（純関数ポリシー）+ `api/ratelimit.py::rate_limit(bucket)`（依存関数ファクトリ） |
+| 依存配線 | `api/main.py` 各ルータに `Depends(rate_limit("api"))` 追加。`api/routers/articles.py` の `star_article` に追加で `Depends(rate_limit("star"))` 適用 |
+| エラーレスポンス | 429 Too Many Requests。ボディ: `{ "detail": "Too many requests. Please try again later." }`。ヘッダ: `Retry-After: {秒数}`。トークン・IP・user_id など内部詳細は含めない |
+| 超過試行の非カウント | max_requests 超過時、DB ドキュメントを更新しない（count は据え置き）。制限中クライアントの再試行が他ユーザーをカウント消費しない |
+
 ### 監査ログ（[ADR-015](../adr/015-audit-logging.md)）
 
 「誰がいつ何をしたか」を事後追跡するため、認証イベントと admin 操作を `auditLogs` コレクションへ追記する。記録の意思決定は薄いサービス層 `AuditLogger`（`api/audit.py`）に集約し、各ルータからは1行の `record(...)` 呼び出しだけにする。
