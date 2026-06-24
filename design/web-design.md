@@ -110,6 +110,29 @@ BFF プロキシ（`web/app/api/backend/[...path]/route.ts`）は既存の転送
 - パスワード入力欄は `type=password` を用いる
 - ログイン失敗はユーザーの存在を伏せた汎用文言とする
 
+### CSRF 対策（Double-submit cookie）（[ADR-019](../adr/019-csrf-double-submit-cookie.md)）
+
+Web からのブラウザ状態変更リクエスト（POST / PUT / DELETE）に対して CSRF（Cross-Site Request Forgery）攻撃を防止する。バックエンドが発行する非 httpOnly Cookie `csrf_token` をクライアントが読み取り、`X-CSRF-Token` ヘッダで送り返す double-submit cookie 方式を採用する。
+
+| 観点 | 実装 |
+|-----|------|
+| トークン取得 | ログイン成功時（`/auth/login`）またはブラウザ初回読み込み時に `GET /auth/me` で取得。Cookie `csrf_token` を JavaScript で読み取る |
+| 付与方式 | 状態変更メソッド（`POST /articles/:id/star` など）の全リクエストで `X-CSRF-Token: {token}` ヘッダを付与（`lib/api.ts` で一元管理） |
+| BFF パススルー | BFF プロキシ（`app/api/backend/[...path]/route.ts`）がリクエストの `X-CSRF-Token` ヘッダを保持してバックエンドに転送 |
+| 実装場所 | `lib/api.ts::fetchBackend` で全リクエスト時に Cookie を読み取り Header に付与。詳細は [ADR-019](../adr/019-csrf-double-submit-cookie.md) を参照 |
+
+### Web Push 通知（VAPID）（[ADR-020](../adr/020-push-notification-web-push.md)）
+
+Podcast 生成完了時にユーザーへ Web Push 通知を送信する。W3C 標準 Web Push（Service Worker + PushManager）を採用し、ユーザーの購読管理（ON/OFF）を設定画面で可能にする。
+
+| 観点 | 実装 |
+|-----|------|
+| Service Worker | `public/sw.js` で push イベントを受信し `showNotification` で通知表示。notificationclick イベントで該当 URL へ遷移 |
+| 購読管理 Hook | `hooks/useWebPushSubscription.ts`：状態機械で Idle → Requesting → Granted/Denied/Unavailable へ遷移。機能検出（`Notification`、`navigator.serviceWorker`）とブラウザ権限リクエスト処理を含む |
+| API 連携 | `GET /notifications/vapid-public-key` で公開鍵取得（未設定は 404・機能検出）。`POST /notifications/subscriptions` で購読登録（W3C 標準形式・冪等）。`DELETE /notifications/subscriptions?endpoint=...` で購読解除（冪等） |
+| UI 配置 | `/settings` ページに Web Push ON/OFF トグルを追加。無効化理由（権限拒否・VAPID 未設定）をグレースフルに表示 |
+| 関連ファイル | `lib/webpush.ts`（API 関数）・`lib/pushBrowserPort.ts`（PushManager 抽象）・`public/manifest.json`（Service Worker 登録） |
+
 ## 4. 各画面の設計
 
 ### エントリーゲート (`app/page.tsx → /`)

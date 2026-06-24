@@ -1,8 +1,8 @@
 # PRD: news-listen — 海外テックニュース自動収集・Podcast化アプリ
 
-**バージョン:** 1.4  
+**バージョン:** 1.5  
 **作成日:** 2026-05-31  
-**最終更新:** 2026-06-23  
+**最終更新:** 2026-06-25  
 **ステータス:** マルチレポ化完了（web, backend, ios, docs を独立リポジトリ化）。バックエンド実装完了・GCP セットアップ / Cloud Run デプロイ完了 / iOS アプリ基盤構築中。**セッションベース認証とマルチユーザー管理（ログイン）を backend / Web / iOS に導入済み（[ADR-013](../adr/013-session-auth-and-user-management.md)）** — 単一ユーザー前提（ADR-007）から更新。
 **想定ユーザー数:** 1〜5人（個人・ファミリー利用）
 
@@ -100,7 +100,7 @@
 | 英語本編 | 記事本文＋関連ニュースを英語で掛け合い（男性話者A・女性話者B）形式で読み上げ | P0 |
 | 難易度選択 | 6段階（下記 [9節](#9-podcast-スクリプト生成仕様) 参照） | P0 |
 | 再生速度調整 | x0.5〜x2.5 の8段階（AVPlayer の rate 機能で実装） | P0 |
-| 生成進捗表示 | 生成中のエピソードはプログレスインジケーターを表示し、完了時にプッシュ通知 | P0 |
+| 生成進捗表示 | 生成中のエピソードはプログレスインジケーターを表示し、完了時にプッシュ通知（Web Push 実装済み・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は ios#15） | P0 |
 | 再生位置保存 | アプリを閉じても秒単位で再生位置を記憶（Firestore + ローカルキャッシュ） | P0 |
 | 日次ダイジェスト | その日のおすすめ記事（Star + 高スコア記事）をまとめた1本を毎朝自動生成 | P1 |
 | オフライン再生 | 生成済み音声ファイルをデバイスにキャッシュし、オフラインでも再生可能 | P1 |
@@ -437,6 +437,7 @@ Web 単独で追加可能なもの:
 | 関連ニュース検索 | MVP では同一 RSS コーパス内のタイトル類似度比較（Embeddings の簡易比較） | 外部 Web 検索 API は費用が高い。自コーパス内で十分な関連記事が見つかるケースが多い |
 | 記事本文フェッチ | RSS が全文配信しない場合は `newspaper3k`（Python）でスクレイピング | 軽量かつ主要メディアに対応済み。Cloud Run Jobs 内で動かすため依存管理も容易 |
 | API 認証 | 利用者はセッションベース認証（bcrypt + 不透明トークン + サーバ側 Session、admin/user ロール）でログイン。基盤の共有 API キーは Secret Manager 経由で据え置き | 1〜5 人規模では Firebase Auth は過剰だが、本人識別・admin によるユーザー管理は必要。既存スタック内で完結する独自セッション方式を採用（[ADR-013](../adr/013-session-auth-and-user-management.md)） |
+| CSRF 対策 | Double-submit cookie（ブラウザ Cookie と X-CSRF-Token Header の両者を検証）| Web からのブラウザ状態変更リクエストに対する CSRF 攻撃を防止。ステートレスで Firestore トランザクション不要。iOS は Bearer 認証のため免除。[ADR-019](../adr/019-csrf-double-submit-cookie.md) |
 | エラー時の挙動 | TTS 並列処理で一部失敗した場合はスキップして結合し `partial_failed` でステータスを記録 | 全体を失敗にするより部分的でも完成物を提供する方がユーザー体験がよい |
 
 ---
@@ -447,6 +448,6 @@ Web 単独で追加可能なもの:
 |---|------|-----------------|
 | 1 | スクレイピング合法性 | 各サイトの利用規約・robots.txt の確認。個人利用の範囲内かどうか |
 | 2 | OpenAI TTS の話者バリエーション | alloy / echo / fable / nova / onyx / shimmer のどれを話者A/Bに割り当てるか。音質テストが必要 |
-| 3 | Push 通知実装方式 | APNs + Firebase Cloud Messaging vs Cloud Run からの直接 APNs 呼び出し |
+| 3 | ~~Push 通知実装方式~~（解決済み） | ~~APNs + Firebase Cloud Messaging vs Cloud Run からの直接 APNs 呼び出し~~ → Web Push（VAPID）を採用・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は ios#15 で別実装 |
 | 4 | ~~ユーザー識別子~~（解決済み） | ログインユーザーの `userId`（`users` コレクション・ADR-013）で識別する方式に確定。端末ローカル UUID / Firebase Auth 案は廃止 |
 | 5 | 関連ニュース品質 | タイトル類似度での関連記事紐付けが実用的に機能するか。本文 Embedding が必要かは実装後に評価 |
