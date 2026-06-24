@@ -3,7 +3,7 @@
 **対象読者:** iOS 開発担当・バックエンド担当・レビュアー
 **ステータス:** 実装中（Phase 1・Living Doc）— Task 1〜4 完了、Feed 以降は未着手
 **最終更新日:** 2026-06-16
-**関連:** [iOS設計書](../design/ios-design.html) / ADR [007](../adr/007-ios-direct-backend-access.md)・[008](../adr/008-ios-local-state-persistence.md)・[009](../adr/009-ios-signed-url-refetch.md)・[010](../adr/010-ios-architecture-swiftui-mvvm.md)・[011](../adr/011-podcast-generation-status.md) / [Web フロントエンド仕様書](../spec/2026-06-10-web-frontend-spec.md)
+**関連:** [iOS設計書](../design/ios-design.html) / ADR [007](../adr/007-ios-direct-backend-access.md)・[008](../adr/008-ios-local-state-persistence.md)・[009](../adr/009-ios-signed-url-refetch.md)・[010](../adr/010-ios-architecture-swiftui-mvvm.md)・[011](../adr/011-podcast-generation-status.md) / [Web フロントエンド設計書](../design/web-design.html)
 
 ---
 
