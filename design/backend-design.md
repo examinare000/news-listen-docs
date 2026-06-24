@@ -1,0 +1,627 @@
+# バックエンド設計書
+
+GCP 上の REST API・バッチ処理・Podcast 生成パイプラインの設計。**本書は設計・仕様の正本**です。
+
+**メタデータ:**
+- 言語: Python 3.12
+- フレームワーク: FastAPI
+- インフラ: Google Cloud
+- リージョン: asia-northeast1
+- 最終更新: 2026-06-24
+- 認証: セッション（ADR-013）反映
+- 本書: 設計・仕様の正本（Markdown）
+
+> **本書の位置づけ:** バックエンドの設計・仕様の**正本**。確定内容を本書に集約する（旧 `docs/spec/2026-06-10-backend-spec.md` は本書へ統合し廃止）。実装の正本はコード、本書は責務・契約・意図の記述に徹する。
+
+> ⚠️ **是正済み（2026-06-24）:** 旧版に残っていた **Cloud Tasks 前提の記述は実装と乖離していたため全面是正した**。
+> Star/Dismiss を起点とした非同期処理は **Cloud Tasks ではなく Cloud Run Jobs を `JobTrigger` で起動する**方式（[ADR-005](../adr/005-job-trigger-on-action.md)）。
+> Podcast 音声は**クロスユーザー共有キャッシュ**（[ADR-006](../adr/006-cross-user-podcast-cache.md)）で生成・配布する。
+> 実装されている公開 API は `GET /health` / `GET /feed` / `POST /articles/{id}/star·dismiss` /
+> `GET /podcasts` / `GET /podcasts/{id}` / `GET·POST·DELETE /settings/sources` /
+> `GET /settings/featured-sources` / `GET·POST /settings/onboarding` / `/auth/*` / `/admin/*`。
+> 再生位置（旧 `PATCH /podcasts/{id}/position`）と既定難易度・速度（旧 `GET·POST /settings`）の API は**存在せず**、クライアント側でローカル保存する（[ADR-008](../adr/008-ios-local-state-persistence.md)）。
+
+---
+
+## 1. インフラ構成
+
+```mermaid
+graph TB
+    subgraph scheduler["SCHEDULER"]
+        SCHED["Cloud Scheduler<br/>06:00 / 07:00 JST"]
+    end
+    
+    subgraph batch["BATCH JOBS"]
+        RSS["rss-fetcher-job<br/>feedparser + trafilatura"]
+        REC["recommendation-job<br/>Gemini + Context Caching"]
+    end
+    
+    subgraph api_server["API SERVER"]
+        APIV["Cloud Run Service<br/>FastAPI :8080<br/>/feed /articles /podcasts<br/>/settings/sources"]
+        JOBT["JobTrigger ADR-005<br/>jobLocks デバウンス → Jobs 起動"]
+        POD_GEN["podcast-generator-job<br/>Gemini TTS → MP3 → 共有キャッシュ"]
+    end
+    
+    subgraph data["DATA"]
+        FS["Firestore<br/>articles/ userPrefs/ users/ sessions/<br/>recommendations/ podcasts/ podcastCache/<br/>asia-northeast1"]
+        GCS["Cloud Storage<br/>MP3ファイル · 30日 Lifecycle"]
+        SM["Secret Manager<br/>podcast-api-key · gemini-api-key"]
+    end
+    
+    subgraph external["EXTERNAL"]
+        GEMINI["Gemini 2.5 Flash API<br/>スクリプト生成 Text · 音声合成 TTS · レコメンドスコア計算"]
+        FEEDS["RSS Feeds 外部<br/>HackerNews · Zenn · ユーザー追加"]
+    end
+    
+    SCHED -->|起動| RSS
+    SCHED -->|起動| REC
+    
+    RSS -->|articles/ に保存| FS
+    REC -->|recommendations/ に保存| FS
+    
+    APIV -->|リクエスト| FS
+    APIV -->|起動| JOBT
+    JOBT -->|起動| POD_GEN
+    
+    POD_GEN -->|署名付き URL 配布| GCS
+    POD_GEN -->|API 呼び出し| GEMINI
+    REC -->|API 呼び出し| GEMINI
+    
+    RSS -.->|フェッチ| FEEDS
+    
+    style SCHED fill:#1e1808,stroke:#f0a050
+    style RSS fill:#1e1808,stroke:#f0a050
+    style REC fill:#1e1808,stroke:#f0a050
+    style APIV fill:#0f1e28,stroke:#4fc3f7
+    style JOBT fill:#0f1e18,stroke:#4caf82
+    style POD_GEN fill:#1e1a30,stroke:#7c6af7
+    style FS fill:#0f1e18,stroke:#4caf82
+    style GCS fill:#0f1e18,stroke:#4caf82
+    style SM fill:#28181e,stroke:#e05c5c
+    style GEMINI fill:#231e35,stroke:#7c6af7
+    style FEEDS fill:#1a1d27,stroke:#8b8fa8
+```
+
+**凡例:**
+- 実線: 同期リクエスト
+- 点線: 非同期/バックグラウンド
+
+---
+
+## 2. 共有クライアント（shared/）
+
+外部依存（Firestore / Cloud Storage / Gemini）を薄いラッパーに閉じ込め、ジョブと API から再利用する。
+
+### FirestoreClient（shared/firestore_client.py）
+
+Firestore の CRUD を集約する薄いラッパー。外部に Firestore 依存を漏らさない。主な責務:
+
+| 対象 | 主な操作 / 契約 |
+|------|-----------------|
+| articles | `article_id = SHA-256(url)[:20]`（決定論的）。`save_article`（merge）/ `get_article` / `article_exists` / `get_recent_articles(limit=200)`（published_at DESC、フィードのフォールバックに使用） |
+| userPrefs | `get_user_prefs`（不在時は `default_difficulty="toeic_900"` の既定値）/ `save_user_prefs` / `add_starred_article` / `add_dismissed_article`（ArrayUnion） |
+| users / sessions | ユーザー・セッション CRUD（[認証](#6-認証ユーザー管理adr-013)・ADR-013）。`delete_sessions_for_user` で一括失効 |
+| recommendations | doc-id `{user_id}_{date}`。`save_recommendation` / `get_recommendation` |
+| podcasts | `save_podcast` / `get_podcast` / `get_podcasts_for_user(limit=50)`（created_at DESC）/ `podcast_exists_for_article`（重複生成チェック） |
+| podcastCache | クロスユーザー共有キャッシュ（[ADR-006](../adr/006-cross-user-podcast-cache.md)）。`try_acquire_cache`（トランザクションで processing 確保）/ `get_podcast_cache` / `save_podcast_cache` |
+| jobLocks | `try_acquire_job_lock(user_id, job_name, ttl)`（ジョブのデバウンス・ADR-005） |
+| featuredSites | システム提供おすすめサイト CRUD（order 昇順） |
+| loginAttempts | ログイン試行カウンタ（[レートリミット](#ログイン試行レートリミットadr-014)・ADR-014） |
+
+### StorageClient（shared/storage_client.py）
+
+| メソッド | 責務 / 契約 |
+|---------|-----------|
+| `upload_cached_audio(cache_key, audio_bytes)` | 決定論的パス `podcasts/cache/{cache_key}.mp3` へアップロードし GCS blob パスを返す。再アップロードは同一 blob に収束（べき等）。公開せず署名付き URL のみで配布。 |
+| `generate_audio_url(blob_name, expiration=3600s)` | v4 署名付き URL を生成。Cloud Run の SA 認証情報は秘密鍵を持たないため、ADC のアクセストークン + SA メールで **IAM signBlob** 署名する（SA に `roles/iam.serviceAccountTokenCreator` 必須）。 |
+
+> **旧仕様からの変更:** 旧 `upload_audio(podcast_id, difficulty, …)` / `get_signed_url(…)` は廃止。保存キーは `podcast_id` 単位から共有キャッシュの `cache_key` 単位へ、署名は public URL から IAM signBlob 方式へ変更（[ADR-006](../adr/006-cross-user-podcast-cache.md)）。
+
+### GeminiClient（shared/gemini_client.py）
+
+| 項目 | 内容 |
+|-----|------|
+| テキストモデル | `gemini-2.5-flash`（スクリプト生成・レコメンドスコア） |
+| TTS モデル | `gemini-2.5-flash-preview-tts`（voice: Kore / Puck） |
+| 認証 | `GEMINI_API_KEY`（未設定時は初期化で `KeyError`）。API エラーは呼び出し元へ伝播 |
+
+---
+
+## 3. バッチ／ジョブ処理
+
+### シーケンス図
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as Cloud Scheduler
+    participant RssFetcher as rss-fetcher-job
+    participant Recommender as recommendation-job
+    participant Firestore
+    participant Gemini
+    
+    Note over Scheduler: 06:00 JST
+    Scheduler->>RssFetcher: 起動
+    RssFetcher->>RssFetcher: RSS フェッチ
+    RssFetcher->>RssFetcher: 本文抽出
+    RssFetcher->>RssFetcher: 重複チェック
+    RssFetcher->>Firestore: articles/ に保存
+    
+    Note over Scheduler: 07:00 JST
+    Scheduler->>Recommender: 起動
+    Recommender->>Firestore: 記事 + 履歴を取得
+    Firestore-->>Recommender: データ返却
+    Recommender->>Gemini: Gemini でスコア計算
+    Recommender->>Firestore: recommendations/ に保存
+    
+    Note over RssFetcher,Firestore: podcast-generator は Star 起点（§4）
+```
+
+### 各ジョブの責務
+
+| ジョブ | 責務 / 契約 |
+|--------|-----------|
+| rss-fetcher-job<br>（jobs/rss_fetcher） | ユーザーの RSS ソースを `feedparser` で取得し新規記事を保存。記事 URL の SHA-256（先頭 20 文字）を doc-id とし、`article_exists` で重複排除。`content` が 200 文字未満なら `trafilatura`（ContentExtractor）で本文補完。外部取得は SSRF 対策の `safe_fetch` 経由（[§7](#7-セキュリティssrfレートリミット)）。 |
+| recommendation-job<br>（jobs/recommendation） | Star（好み）/ Dismiss（非好み）履歴と直近記事を Gemini に渡し 0.0〜1.0 のスコアを付与（`score_articles(candidates, starred, dismissed)`、temperature 0.2）。候補集合外の ID（幻覚）は除外。Gemini 失敗時は全候補に 0.5 のフォールバック。当日の `recommendations/{user_id}_{date}` に保存。 |
+| podcast-generator-job<br>（jobs/podcast_generator） | Star 済み記事から日本語イントロ + 英語本編のスクリプトを生成（難易度別指示）し、TTS で音声（PCM 24kHz/mono/16bit、Kore + Puck）を合成。クロスユーザー共有キャッシュで生成・配布（[§5](#5-podcast-生成キャッシュadr-006)）。 |
+
+> **難易度:** `toeic_600 / toeic_900 / ielts_55 / ielts_7 / eiken_2 / eiken_p1` の 6 種。プレーン文字列として扱い、スクリプト生成プロンプトに難易度別の語彙・文構造の指示を埋め込む。
+
+---
+
+## 4. Star/Dismiss 起点のジョブトリガ（[ADR-005](../adr/005-job-trigger-on-action.md)）
+
+> ⚠️ **Cloud Tasks は使用しない。** 旧設計の Cloud Tasks ワーカー（`/internal/generate-podcast`・202 Accepted ポーリング）は実装されていない。Star/Dismiss を起点に API が `shared/job_trigger.py` の `JobTrigger` で **Cloud Run Jobs** を起動する。
+
+### 処理フロー
+
+| # | 主体 | 処理 |
+|---|------|------|
+| 1 | クライアント | `POST /articles/{id}/star`（または `/dismiss`） |
+| 2 | API | Firestore に Star/Dismiss を記録（ArrayUnion・冪等）。即時 `200`（`{status, article_id}`）を返す |
+| 3 | API → JobTrigger | star → `recommendation` + `podcast-generator`、dismiss → `recommendation` を起動。`jobLocks` の TTL ロックでデバウンス（短時間の連続操作で多重起動しない） |
+| 4 | JobTrigger | 起動先は `JOB_TRIGGER_BACKEND` で切替: `cloud_run`（Cloud Run Jobs Admin API）/ `local_process`（サブプロセス・PoC）/ `disabled`（起動せずバッチに委ねる＝既定） |
+| 5 | Job | 非同期で記事スコアリング / Podcast 生成を実行（後者は §5 のキャッシュ戦略） |
+| 6 | クライアント | `GET /podcasts` / `GET /feed` を pull-to-refresh で再取得し結果を反映 |
+
+> ジョブ起動に失敗してもアクション自体は成功扱い（記録は完了）。起動失敗はログのみ。
+
+---
+
+## 5. Podcast 生成キャッシュ（[ADR-006](../adr/006-cross-user-podcast-cache.md)）
+
+同一記事 × 同一難易度の音声は内容が同一になるため、ユーザー横断で 1 度だけ生成し共有する。
+
+| 観点 | 設計 |
+|-----|------|
+| キャッシュキー | `cache_key = cache_key_for(article_id, difficulty, language)`。`language` は現状 `"ja-en"` 固定（将来の多言語化に備えた次元） |
+| 競合制御 | `try_acquire_cache()`（Firestore トランザクション）で `processing` を原子的に確保。確保できたジョブのみ生成し、他は待たずにスキップ（無駄な再生成をしない） |
+| ユーザー単位の冪等 | 生成前に `podcast_exists_for_article()` で当該ユーザーが既に所有していればスキップ |
+| 保存先 | `StorageClient.upload_cached_audio` → `podcasts/cache/{cache_key}.mp3`。配布は `generate_audio_url()` の署名付き URL のみ（公開しない） |
+| 所有関係 | 各ユーザーは自身の `Podcast` を持ち、音声 blob はキャッシュを共有参照する |
+| 失敗時 | キャッシュ / Podcast を `failed` でマークし再試行可能にする（`error_message` 保持） |
+
+> **生成ステータス（[ADR-011](../adr/011-podcast-generation-status.md)）:** `Podcast.status` は `processing → completed / failed / partial_failed`。可観測性のため永続化するが、現行の `PodcastResponse` には含めない（iOS のポーリング表示は Phase 2 課題）。
+
+---
+
+## 6. 認証・ユーザー管理（ADR-013）
+
+> **方針:** 基盤の `X-API-Key`（共有 API ゲート）は据え置いたまま、利用者はセッションベース認証でログインする方式を導入。
+> ロールは `admin` / `user` の 2 種で、データは利用者単位（`user_id` パーティション）で分離する。
+> これにより ADR-007 で前提としていた単一ユーザー（環境変数 `USER_ID` 固定）はマルチユーザーへ更新される（[ADR-013](../adr/013-session-auth-and-user-management.md)）。
+
+### 認証フローと責務
+
+| 関心事 | 責務 / 契約 |
+|--------|-----------|
+| API ゲート | 全リクエストに共有 `X-API-Key` を要求（基盤防御）。`/health` のみ免除。 |
+| ログイン | username + password を検証し、セッショントークンを発行。Web は Cookie、iOS はレスポンスボディでトークンを受け取る。 |
+| トークン抽出順序 | ① `Authorization: Bearer`（iOS） → ② Cookie `nl_session`（Web）の順で解決する。 |
+| セッション検証 | 受領トークンを SHA-256 でハッシュ化し、`sessions/{session_id}` と突合。無効・期限切れは `401`。期限切れは遅延削除する。 |
+| データ分離 | 認証済みセッション由来の `user_id` をデータパーティションキーとして利用（旧: 環境変数固定）。 |
+| ロール制御 | ユーザー管理 API は `require_admin` で保護し、非 admin は `403`。 |
+
+### セキュリティ設計
+
+- **パスワード:** bcrypt でハッシュ化して保存（平文・可逆形式は保存しない）。UTF-8 で 72 バイトを超える入力は bcrypt 仕様に合わせて切り詰める。
+- **セッショントークン:** `secrets.token_urlsafe(32)` で生成。生トークンは保存せず、SHA-256 ハッシュ（= `session_id`）のみを Firestore に保存する。
+- **Cookie:** `nl_session` は `httpOnly`。`Secure` 属性は `SESSION_COOKIE_SECURE` で制御（本番 true / ローカル http は false）。
+- **ログイン失敗:** ユーザーの存在有無を伏せた汎用メッセージで `401` を返す（列挙攻撃対策）。
+- **エラー応答:** 内部情報・トークン値をエラーメッセージに含めない。
+- **セッション即時失効:** 降格（admin→user）・パスワードリセット・ユーザー削除のいずれでも、対象ユーザーの全セッションを `delete_sessions_for_user` で即時失効させる。
+- **最後の admin 保護:** 唯一の admin の降格・削除は `409` で拒否する。
+
+### セキュリティヘルパー（shared/security.py）
+
+| 関数 | 責務 |
+|-----|-----|
+| `hash_password` / `verify_password` | bcrypt によるパスワードのハッシュ化・照合（72 バイト超は切り詰め）。 |
+| `generate_session_token` | セッションの生トークンを生成（`secrets.token_urlsafe(32)`）。 |
+| `hash_token` | 生トークンを SHA-256 でハッシュ化し `session_id` を導出。 |
+
+### 認証依存（api/dependencies.py）
+
+| 依存 | 責務 |
+|-----|-----|
+| `get_current_user` | トークン抽出（Bearer→Cookie）→ セッション検証。無効は `401`、`expires_at` 超過は遅延削除のうえ `401`。 |
+| `get_user_id` | ログインセッション由来の `user_id` を返す（旧: 環境変数 `USER_ID` 固定。ADR-007 の単一ユーザー前提を更新）。 |
+| `require_admin` | ロールが `admin` でない場合は `403`。ユーザー管理 API に適用。 |
+
+### 初期データ投入
+
+`backend/scripts/seed_users.py` が環境変数から初期 admin / user を冪等に投入する
+（`INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASS`・`INITIAL_USER_USERNAME` / `INITIAL_USER_PASSWORD`）。
+
+> ⚠️ **運用必須:** 初回デプロイ後は既定パスワードを必ず変更すること。
+
+### 環境変数（認証関連）
+
+| 変数 | 既定 | 説明 |
+|-----|-----|------|
+| `SESSION_TTL_HOURS` | 168（7 日） | セッションの有効期間。 |
+| `SESSION_COOKIE_SECURE` | true | Cookie の `Secure` 属性。ローカル http では false。 |
+| `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASS` | — | 初期 admin の資格情報（seed 用）。 |
+| `INITIAL_USER_USERNAME` / `INITIAL_USER_PASSWORD` | — | 初期 user の資格情報（seed 用）。 |
+
+---
+
+## 7. セキュリティ（SSRF / レートリミット）
+
+### API キー比較
+
+グローバルの `X-API-Key` は `hmac.compare_digest` による**定数時間比較**で検証する（タイミング攻撃対策）。
+
+### ログイン試行レートリミット（[ADR-014](../adr/014-login-rate-limiting.md)）
+
+ブルートフォース対策。`POST /auth/login` でパスワード検証**前**にロック状態を確認する。
+
+| 観点 | 設計 |
+|-----|------|
+| 集計単位 | `ip:{SHA256(ip)}` と `user:{username}` の 2 系統（Firestore `loginAttempts`）。IP は生値を保存せずハッシュ化する |
+| 挙動 | 窓内（`LOGIN_RATELIMIT_WINDOW_SECONDS`=900）で上限（`LOGIN_RATELIMIT_MAX_ATTEMPTS`=5）超過 → ロック（`LOGIN_RATELIMIT_LOCKOUT_SECONDS`=900）。ロック中は `429` + `Retry-After` |
+| 状態遷移 | 失敗で `register_failed_login` 加算、成功で `clear_login_attempts` リセット。`MAX_ATTEMPTS=0` で無効化（開発用） |
+
+### 外部 URL の SSRF 対策（shared/url_guard.py）
+
+RSS ソース登録・記事フェッチで外部 URL を扱うため、内部リソースへの到達を多層で防ぐ。
+
+| 層 | 対策 |
+|----|------|
+| 登録時（多層防御） | `RssSourceRequest` / `FeaturedSiteRequest` の `url`・`thumbnail_url` は `HttpUrl` 型 + `field_validator` で `validate_url` を実行。違反は `422` |
+| URL 検証 | `validate_url`: スキーム（http/https）・DNS 解決・private/loopback/reserved/multicast/link-local IP の拒否（IPv4-mapped IPv6 も考慮） |
+| フェッチ時 | `safe_fetch(url, max_bytes=10MB, timeout=10s, max_redirects=5)`: 検証済み IP へ**ピンニング**し、リダイレクト毎に再検証（DNS リバインディング対策）。ストリーミングでサイズ上限を強制 |
+
+---
+
+## 8. API エンドポイント仕様
+
+> 基盤の API ゲートとして全エンドポイントに `X-API-Key: {key}` ヘッダーが必要（`/health` のみ認証不要）。これに加え、利用者向けデータ API（`/feed`・`/articles`・`/podcasts`・`/settings`・`/auth/me`・`/admin/users`）はログインセッション（[§6 認証・ユーザー管理](#6-認証ユーザー管理adr-013)／ADR-013）を要求する。`/auth/login`・`/auth/logout`・`/admin/featured-sites` はセッション不要。
+
+### Feed
+
+#### `GET /feed`
+
+当日のフィードを返す。レコメンドが基準件数（100 件）以上あればその上位 50 件、基準未満（None・空・疎を含む）なら**全記事フォールバック**（dismiss 済みを除外し、未スコア記事は中立 0.5）。コールドスタートで空・極端に少ない状態を避ける。
+
+| レスポンス | 型 | 説明 |
+|-----------|-----|------|
+| articles | Article[] | スコア付き記事（通常経路はスコア降順・最大 50 件） |
+| date | string | YYYY-MM-DD |
+
+### Articles
+
+#### `POST /articles/{id}/star` <span style="background: rgba(79,195,247,.15); color: #4fc3f7; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline;">ジョブ起動</span>
+
+記事を Star 登録（ArrayUnion・冪等）。即時 `200` を返し、バックグラウンドで `recommendation` + `podcast-generator` ジョブを起動（[§4 ジョブトリガ](#4-stardismiss-起点のジョブトリガadr-005)・ADR-005）。
+
+| レスポンス | 型 | 説明 |
+|-----------|-----|------|
+| status | "starred" | |
+| article_id | string | |
+
+| エラー | 説明 |
+|--------|------|
+| 404 | article_id に対応する記事が存在しない |
+
+#### `POST /articles/{id}/dismiss` <span style="background: rgba(79,195,247,.15); color: #4fc3f7; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline;">ジョブ起動</span>
+
+記事を Dismiss（以降フィードから除外）。即時 `200` を返し、バックグラウンドで `recommendation` ジョブを起動する。
+
+### Podcasts
+
+#### `GET /podcasts`
+
+ユーザーの Podcast エピソード一覧（最新 50 件）。
+
+#### `GET /podcasts/{id}`
+
+エピソード詳細。`status` で生成中/完了/失敗を確認できる。
+
+> **再生位置はサーバー保存しない:** 再生位置の保存用エンドポイント（旧 `PATCH /podcasts/{id}/position`）は実装しない。クライアントが端末ローカル（Web=localStorage、iOS=UserDefaults のキー `podcast_position:{id}`）に保存する（[ADR-008](../adr/008-ios-local-state-persistence.md)）。
+
+### RSS 購読管理（Subscriptions）
+
+#### `GET /settings/sources`
+
+購読中の RSS ソース一覧を返す。各ソースは URL をキーとして識別し、ID は持たない。
+
+| レスポンス | 型 | 説明 |
+|-----------|-----|------|
+| sources | Source[] | 購読中の RSS ソース一覧 |
+| sources[].name | string | 表示名（例: HackerNews / Zenn.dev） |
+| sources[].url | string | RSS フィード URL（識別キー） |
+
+#### `POST /settings/sources`
+
+新しい RSS ソースを追加する。成功時は更新後の一覧（sources）を返す。
+
+| リクエスト | 型 | バリデーション |
+|-----------|-----|-------|
+| name | string | 表示名 |
+| url | string | HTTP/HTTPS URL・重複不可（識別キー） |
+
+| エラー | 説明 |
+|--------|------|
+| 409 | URL 重複（登録済み） |
+| 422 | URL フォーマット不正（Pydantic 検証） |
+
+#### `DELETE /settings/sources?url={url}`
+
+RSS ソースを削除する。削除対象はクエリパラメータ `url`（URL キー）で指定する。ID は用いない。成功時は更新後の一覧を返し、該当 URL が無い場合は 404。
+
+### おすすめサイト・オンボーディング（[ADR-012](../adr/012-featured-sites-and-onboarding.md)）
+
+#### `GET /settings/featured-sources`
+
+システム提供のおすすめサイト一覧（`featuredSites` コレクション・グローバル）を `order` 昇順で返す。表示順は配列順で表現し `order` 値は含めない。0 件なら `sites=[]`。
+
+| レスポンス | 型 | 説明 |
+|-----------|-----|------|
+| sites[].id / name / url | string | doc-id（slug）/ 表示名 / RSS URL |
+| sites[].thumbnail_url / description | string \| null | サムネイル / 説明（任意） |
+
+#### `GET /settings/onboarding · POST /settings/onboarding/complete`
+
+初回オンボーディング完了状態の参照・記録。状態は `UserPrefs.onboarding_completed` に永続化（既存ドキュメントは default=false で後方互換）。`complete` は全置換更新。
+
+### 既定設定（難易度・再生速度）
+
+> **既定設定はサーバー保存しない:** 既定難易度・既定再生速度の取得/更新 API（旧 `GET·POST /settings`）は実装しない。クライアントが端末ローカル（Web=localStorage、iOS=UserDefaults）に保存する（[ADR-008](../adr/008-ios-local-state-persistence.md)）。難易度は記事スター時の Podcast 生成パラメータとして扱われ、生成済み Podcast の `difficulty` は不変。
+
+### 認証（Auth）
+
+#### `POST /auth/login`
+
+username + password を検証し、セッショントークンを発行する。Web には `Set-Cookie: nl_session`（httpOnly、`Secure` は `SESSION_COOKIE_SECURE` 制御）を返し、iOS にはレスポンスボディの `token` を返す。
+
+| エラー | 説明 |
+|--------|------|
+| 401 | 資格情報が不正（ユーザーの存在は伏せた汎用メッセージ） |
+
+#### `POST /auth/logout`
+
+現在のセッションを失効させる（冪等）。
+
+#### `GET /auth/me`
+
+ログイン中ユーザーの情報（username / role / display_name）を返す。
+
+#### `PATCH /auth/me`
+
+自身の `display_name` を更新する。
+
+#### `POST /auth/password`
+
+自身のパスワードを変更する。`current_password` の検証を必須とする。
+
+### 管理（Admin）
+
+> **認証の差:** おすすめサイト CRUD `/admin/featured-sites` は運用者専用で共有 `X-API-Key` のまま（[ADR-012(C)](../adr/012-featured-sites-and-onboarding.md)）。ユーザー管理 `/admin/users` は `require_admin`（ログインセッションの `role=="admin"`）で保護し、非 admin は `403`（ADR-013）。
+
+#### `GET · POST /admin/featured-sites · PATCH /admin/featured-sites/{site_id} · DELETE /admin/featured-sites/{site_id}`
+
+おすすめサイトの一覧・作成（doc-id は name を slug 化）・全置換更新・削除。`url`・`thumbnail_url` は `HttpUrl` + SSRF 検査。重複 slug は `409`、不在 site_id は `404`、`X-API-Key` 不正は `401`。
+
+#### `GET /admin/users · POST /admin/users`
+
+ユーザー一覧の取得・新規ユーザー作成。
+
+#### `PATCH /admin/users/{username} · DELETE /admin/users/{username}`
+
+ロール変更・パスワードリセット・表示名変更・削除。
+
+| 挙動 / エラー | 説明 |
+|-------------|------|
+| 409 | 唯一の admin の降格・削除（最後の admin 保護） |
+| セッション失効 | 降格（admin→user）・PW リセット（`new_password` 指定）・削除のいずれでも対象ユーザーの全セッションを `delete_sessions_for_user` で即時失効 |
+
+---
+
+## 9. Firestore データモデル
+
+### articles コレクション
+
+ドキュメント ID は `SHA-256(url)[:20]`（URL から決定論的に生成）。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| title | string | 記事タイトル |
+| url | string | 記事 URL |
+| source | string | "HackerNews" / "Zenn.dev" / ユーザー定義名 |
+| content | string | フェッチ済み本文（最大 10,000 文字） |
+| published_at | timestamp | 記事公開日時 |
+| fetched_at | timestamp | RSS 取得日時 |
+| content_fetched_at | timestamp \| null | 本文フェッチ日時（未取得時 null） |
+
+### users コレクション（ADR-013）
+
+ドキュメント ID は `username`（ログイン ID 兼キー・不変スラッグ）。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| username | string | ログイン ID 兼ドキュメントキー（不変スラッグ） |
+| user_id | string | データパーティションキー（username とは独立に採番） |
+| password_hash | string | bcrypt ハッシュ（平文は保存しない） |
+| role | "admin" \| "user" | 権限ロール |
+| display_name | string | 表示名 |
+| created_at | timestamp | 作成日時 |
+| updated_at | timestamp | 更新日時 |
+
+### sessions コレクション（ADR-013）
+
+ドキュメント ID は `session_id`（= 発行トークンの SHA-256 ハッシュ。生トークンは保存しない）。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| session_id | string | 発行トークンの SHA-256 ハッシュ（ドキュメントキー） |
+| user_id | string | セッション所有者の user_id |
+| username | string | username（キャッシュ） |
+| role | "admin" \| "user" | ロール（キャッシュ） |
+| created_at | timestamp | 発行日時 |
+| expires_at | timestamp | 失効日時（`SESSION_TTL_HOURS` 由来。超過時は遅延削除） |
+
+### userPrefs コレクション
+
+ドキュメント ID は `user_id`（マルチユーザー化により利用者ごとに分離。ADR-013）。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| user_id | string | ユーザー ID |
+| starred_article_ids | string[] | Star 登録済み記事 ID 一覧 |
+| dismissed_article_ids | string[] | Dismiss 済み記事 ID 一覧 |
+| rss_sources | RssSource[] | 購読 RSS ソース一覧（name / url） |
+| default_difficulty | string | デフォルト難易度（プレーン文字列。必須） |
+| default_playback_speed | number | デフォルト再生速度（既定 1.0） |
+| digest_enabled / digest_article_count | boolean / number | ダイジェスト設定（P1、既定 true / 5） |
+| onboarding_completed | boolean | 初回オンボーディング完了（既存ドキュメントは default=false で後方互換） |
+
+### recommendations コレクション
+
+ドキュメント ID は `{user_id}_{YYYY-MM-DD}`。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| user_id | string | ユーザー ID |
+| date | string | 対象日（YYYY-MM-DD） |
+| articles | RecommendedArticle[] | スコア付き記事一覧（スコア降順） |
+| articles[].article_id | string | 記事 ID |
+| articles[].score | number | レコメンドスコア（0.0〜1.0） |
+| generated_at | timestamp | レコメンド生成日時 |
+
+### podcasts コレクション
+
+ドキュメント ID は UUID v4。ユーザー所有のエピソード。音声 blob は共有キャッシュを参照する（§5）。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| type | "single" \| "digest" | 単一記事 / ダイジェスト |
+| article_ids | string[] | 対象記事 ID 一覧 |
+| difficulty | string | 難易度 |
+| audio_url | string | GCS blob パス。API レスポンスでは署名付き URL に変換して返す |
+| japanese_intro_text | string | 日本語イントロ文 |
+| duration_seconds | number | 音声の長さ（秒） |
+| status | "processing" \| "completed" \| "failed" \| "partial_failed" | 生成ステータス（ADR-011） |
+| error_message | string \| null | エラー詳細（失敗時） |
+| created_at | timestamp | 作成日時 |
+| user_id | string | ユーザー ID |
+
+> 再生位置はサーバー保存しない（旧 `playback_position_seconds` は廃止。クライアントローカル保存・ADR-008）。
+
+### podcastCache コレクション（ADR-006）
+
+ドキュメント ID は `cache_key`（`{article_id}__{difficulty}__{language}`）。クロスユーザー共有。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| cache_key / article_id / difficulty / language | string | キー構成要素（language は現状 "ja-en" 固定） |
+| status | "processing" \| "completed" \| "failed" | キャッシュ状態（partial_failed は持たない） |
+| audio_url / japanese_intro_text / duration_seconds | (任意) | processing 確保時点は未確定のため Optional |
+| created_at | timestamp | 作成日時 |
+
+### featuredSites / loginAttempts / jobLocks コレクション
+
+| コレクション | doc-id | 役割 |
+|------------|--------|------|
+| featuredSites | slug(name) | システム提供おすすめサイト（グローバル・order 昇順）。id / name / url / thumbnail_url? / description? / order |
+| loginAttempts | `ip:{hash}` / `user:{username}` | ログイン試行カウンタ（レートリミット・ADR-014） |
+| jobLocks | `{user_id}:{job_name}` | ジョブトリガのデバウンス用 TTL ロック（ADR-005） |
+
+### Firestore インデックス
+
+正本は `backend/firestore.indexes.json`。`scripts/deploy_firestore_indexes.sh` で冪等に適用する。
+
+| コレクション | フィールド（複合インデックス） | 用途 |
+|------------|--------------------------|------|
+| podcasts | user_id ASC, created_at DESC | ユーザー別エピソード一覧 |
+| podcasts | user_id ASC + difficulty ASC + type ASC + article_ids (array_contains) | Star 済み記事の重複生成防止 |
+
+---
+
+## 10. ジョブ実行・環境変数
+
+### ジョブ実行モデル（ADR-005）
+
+ジョブは **Cloud Run Jobs** として実行する（Cloud Tasks は使用しない）。起動経路は 2 系統:
+
+- **定時バッチ**: Cloud Scheduler から rss-fetcher / recommendation を起動。
+- **アクション起点**: Star/Dismiss を契機に `JobTrigger` が起動（`jobLocks` でデバウンス）。`JOB_TRIGGER_BACKEND` で `cloud_run` / `local_process` / `disabled` を切替。
+
+### 主な環境変数
+
+| 変数 | 既定 | 説明 |
+|-----|-----|------|
+| `API_KEY` | — | グローバル X-API-Key（未設定時は起動時に警告） |
+| `JOB_TRIGGER_BACKEND` | disabled | アクション起点ジョブの起動先（cloud_run / local_process / disabled） |
+| `JOB_DEBOUNCE_SECONDS` | 120 | ジョブトリガのデバウンス秒（jobLocks TTL） |
+| `GOOGLE_CLOUD_PROJECT` / `GCP_REGION` | — / asia-northeast1 | Cloud Run Jobs ディスパッチ先 |
+| `GEMINI_API_KEY` / `GCS_BUCKET_NAME` | — | Gemini / 音声ストレージ（ジョブ必須） |
+| `LOGIN_RATELIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` / `_LOCKOUT_SECONDS` | 5 / 900 / 900 | ログイン試行レートリミット（0 で無効化・ADR-014） |
+| `SEED_USERS_ON_STARTUP` | — | 設定時、API 起動時に seed_users を実行 |
+
+認証関連（`SESSION_TTL_HOURS` / `SESSION_COOKIE_SECURE` / `INITIAL_*`）は [§6](#6-認証ユーザー管理adr-013) を参照。
+
+---
+
+## 11. エラーハンドリング方針
+
+| シナリオ | 対応 |
+|--------|------|
+| RSS フェッチ失敗 | ソース単位でスキップ、ログ記録。他のソースは継続処理。 |
+| 本文スクレイピング失敗 | RSS の summary をそのまま使用（空でも続行）。 |
+| Gemini スクリプト生成失敗 | ジョブ内で例外伝播 → 当該 Podcast / キャッシュを `status=failed` でマークし再試行可能にする。 |
+| Gemini TTS 失敗 | イントロ or 本編の片方が失敗した場合は `status=partial_failed`、空セグメントはスキップして結合。 |
+| キャッシュ確保競合 | `try_acquire_cache` 失敗（他ジョブが担当中/完了済み）はスキップ（無駄な再生成をしない）。 |
+| Cloud Storage 保存失敗 | 例外伝播 → `status=failed`。次回トリガで再試行。 |
+| Gemini レコメンド失敗 | 全候補にデフォルトスコア 0.5 を設定して推薦を保存。 |
+
+---
+
+## 12. ファイル構成
+
+| ディレクトリ / ファイル | 責務 |
+|----------------------|------|
+| shared/models.py | Pydantic モデル: Article / UserPrefs / Recommendation / Podcast / PodcastCache / FeaturedSite / User / Session |
+| shared/security.py | パスワードハッシュ（bcrypt）・セッショントークン生成 / ハッシュ化（ADR-013） |
+| shared/firestore_client.py | Firestore CRUD ヘルパー（全コレクション） |
+| shared/storage_client.py | Cloud Storage（共有キャッシュ upload / IAM signBlob 署名付き URL） |
+| shared/gemini_client.py | Gemini テキスト生成 + TTS ラッパー |
+| shared/url_guard.py | SSRF 対策（validate_url / safe_fetch・IP ピンニング） |
+| shared/job_trigger.py | JobTrigger / Cloud Run・local_process ディスパッチャ・デバウンス（ADR-005） |
+| shared/utils.py | slugify / normalize_username / article_id_for_url / cache_key_for |
+| jobs/rss_fetcher/{main,rss_fetcher,content_extractor}.py | RSS 取得ジョブ（feedparser + trafilatura + safe_fetch） |
+| jobs/recommendation/{main,recommender}.py | レコメンドジョブ（Gemini スコアリング） |
+| jobs/podcast_generator/{main,script_generator,tts_generator}.py | Podcast 生成ジョブ（スクリプト生成・TTS・キャッシュ） |
+| api/main.py | FastAPI app + X-API-Key 認証（定数時間比較） |
+| api/dependencies.py | 認証依存: get_current_user / get_user_id / require_admin（ADR-013） |
+| api/routers/auth.py | POST /auth/login·logout（レートリミット）、GET·PATCH /auth/me、POST /auth/password |
+| api/routers/admin.py | ユーザー管理 CRUD（/admin/users・require_admin）＋ おすすめサイト CRUD（/admin/featured-sites・X-API-Key） |
+| api/routers/feed.py | GET /feed（フォールバック付き） |
+| api/routers/articles.py | POST /articles/{id}/star\|dismiss（JobTrigger 起動） |
+| api/routers/podcasts.py | GET /podcasts, GET /podcasts/{id}（署名付き URL 変換） |
+| api/routers/settings.py | RSS ソース / featured-sources / onboarding |
+| api/schemas.py | Pydantic リクエスト/レスポンス（SSRF バリデータ含む） |
+| scripts/seed_users.py / seed_featured_sites.py | 初期ユーザー / おすすめサイトの冪等投入 |
+| scripts/deploy_firestore_indexes.sh / firestore.indexes.json | 複合インデックスの正本と適用スクリプト |
+| tests/ | 各モジュールの単体テスト（models / rss_fetcher / content_extractor / recommender / script_generator / tts_generator / api_feed / api_articles / api_podcasts / api_settings） |
+| Dockerfile.jobs / Dockerfile.api | Cloud Run Job / API 用コンテナ定義 |
+| requirements.txt | Python 依存パッケージ |
