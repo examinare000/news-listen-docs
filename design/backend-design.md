@@ -264,6 +264,18 @@ sequenceDiagram
 | `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASS` | — | 初期 admin の資格情報（seed 用）。 |
 | `INITIAL_USER_USERNAME` / `INITIAL_USER_PASSWORD` | — | 初期 user の資格情報（seed 用）。 |
 
+### パスワード強度・セッションローテーション（[ADR-017](../adr/017-password-strength-and-session-rotation.md)）
+
+弱いパスワードの新規作成を防ぎ、固定セッションのリスクを下げる。
+
+| 観点 | 設計 |
+|-----|------|
+| 強度ポリシー | 純粋関数 `validate_password_strength`（`shared/password_policy.py`）。最小長 12・文字クラス（小文字/大文字/数字/記号）3 種以上・オフライン同梱ブロックリスト（`shared/data/common_passwords.txt`）不該当・ユーザー名非包含。違反は `ValueError`（平文 PW 非含有）→ `422` |
+| 適用範囲 | **新規・変更パスワードのみ**（`UserCreateRequest.password`・`PasswordChangeRequest.new_password`・`UserUpdateRequest.new_password`）。`LoginRequest.password` は**対象外**（既存ユーザーのログインを壊さない） |
+| しきい値 | 定数固定（環境変数化しない）。運用者が緩める方向の事故を防ぐ |
+| セッションローテーション | `login` で**認証成功後・新トークン発行前**に、提示された旧トークンがあれば `delete_session(hash_token(old))` で失効（固定化対策・冪等）。失敗ログインでは実行されない |
+| 機微情報秘匿 | `api/main.py` の `RequestValidationError` ハンドラが、検証エラー本文から機微フィールド（`password`/`new_password`/`current_password`）の送信値（`input`/`ctx`）を伏せる。弱い PW を送っても 422 本文に平文が出ない |
+
 ---
 
 ## 7. セキュリティ（SSRF / レートリミット）
