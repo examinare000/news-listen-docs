@@ -3,7 +3,7 @@
 **ステータス:** 採用済み
 **決定日:** 2026-06-19
 **対象読者:** バックエンド / Web / iOS 開発者
-**関連:** [ADR-007](007-ios-direct-backend-access.md)（単一ユーザー前提）・[backend 設計書（API・Admin）](../design/backend-design.html#api)・`agent-rules/12-security-guidelines.md`
+**関連:** [ADR-007](007-ios-direct-backend-access.md)（単一ユーザー前提）・[backend 設計書（API・Admin）](../design/backend-design.md)・`agent-rules/12-security-guidelines.md`
 
 ## 背景
 
