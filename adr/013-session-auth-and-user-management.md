@@ -3,7 +3,7 @@
 **ステータス:** 採用済み
 **決定日:** 2026-06-23
 **対象読者:** バックエンド / Web / iOS 開発者
-**関連:** [ADR-007](007-ios-direct-backend-access.md)（単一ユーザー前提を更新）・[ADR-012 (C)](012-featured-sites-and-onboarding.md)（admin API の認証方針を更新）・[PRD §5.4/§7.3/§8](../prd/2026-05-31-news-listen.md)・[backend-spec §1/§4.7](../spec/2026-06-10-backend-spec.md)・`agent-rules/12-security-guidelines.md`
+**関連:** [ADR-007](007-ios-direct-backend-access.md)（単一ユーザー前提を更新）・[ADR-012 (C)](012-featured-sites-and-onboarding.md)（admin API の認証方針を更新）・[PRD §5.4/§7.3/§8](../prd/2026-05-31-news-listen.md)・[backend 設計書（認証）](../design/backend-design.html#auth)・`agent-rules/12-security-guidelines.md`
 
 ## 背景
 
@@ -60,7 +60,7 @@
 
 - **スキーマ**: `shared/models.py` に `User`（`username` / `user_id` / `password_hash` / `role` / `display_name` / 監査タイムスタンプ）と `Session`（`session_id`=トークンの SHA-256 ハッシュ / `user_id` / `username`・`role` のキャッシュ / `expires_at`）を追加。Firestore コレクション `users/{username}`・`sessions/{session_id}` を新設。
 - **API**: `api/routers/auth.py`（`POST /auth/login`・`POST /auth/logout`・`GET/PATCH /auth/me`・`POST /auth/password`）と、`api/routers/admin.py` のユーザー CRUD（`GET/POST /admin/users`・`PATCH/DELETE /admin/users/{username}`、`require_admin`）を追加。`api/dependencies.py` に `get_current_user` / `get_user_id` / `require_admin` を実装し、`get_user_id` は **環境変数 `USER_ID` 固定からログインセッション由来へ**切り替えた（ADR-007 の単一ユーザー前提を更新）。
-- **Web**: `AuthContext` がセッション状態（`unknown`/`authenticated`/`unauthenticated`）を `GET /auth/me` で解決。入口ゲート `app/page.tsx` は未認証なら `LoginModal`、設定画面に `AccountSection`（表示名・PW 変更・ログアウト）、`/admin/users` に管理画面を追加。**BFF プロキシは `Cookie` 中継と `Set-Cookie` の通し**を行う（[web-spec §6](../spec/2026-06-10-web-frontend-spec.md)）。
+- **Web**: `AuthContext` がセッション状態（`unknown`/`authenticated`/`unauthenticated`）を `GET /auth/me` で解決。入口ゲート `app/page.tsx` は未認証なら `LoginModal`、設定画面に `AccountSection`（表示名・PW 変更・ログアウト）、`/admin/users` に管理画面を追加。**BFF プロキシは `Cookie` 中継と `Set-Cookie` の通し**を行う（[web 設計書（BFF/認証）](../design/web-design.html#auth)）。
 - **iOS**: `SessionStore`（Keychain `kSecAttrAccessibleAfterFirstUnlock`）にトークンを保管し、`APIClient` が `Authorization: Bearer` で送出。起動ゲートで `refreshAuth()`→未認証なら `LoginView`、設定に `AccountSettingsView`、`AdminUsersView` を追加。
 - **初期データ**: `backend/scripts/seed_users.py` が環境変数（`INITIAL_ADMIN_USERNAME`/`INITIAL_ADMIN_PASS`・`INITIAL_USER_USERNAME`/`INITIAL_USER_PASSWORD`）から初期ユーザーを冪等投入。**初回デプロイ後に必ず既定パスワードを変更**すること。
 - **新規環境変数**: `SESSION_TTL_HOURS`（既定 168）・`SESSION_COOKIE_SECURE`（既定 true、ローカル開発は false）・上記初期ユーザー4変数（`.env.example` 参照）。

@@ -84,10 +84,15 @@
   <div class="meta">
     <div class="badge">フレームワーク <span>Next.js 15 (App Router)</span></div>
     <div class="badge">言語 <span>TypeScript</span></div>
-    <div class="badge">スタイル <span>Tailwind CSS</span></div>
+    <div class="badge">スタイル <span>純 CSS + デザイントークン (ADR-003)</span></div>
     <div class="badge">ホスティング <span>Cloud Run (GCP)</span></div>
     <div class="badge">認証 <span>セッション (ADR-013)</span></div>
-    <div class="badge">最終更新 <span>2026-06-23（認証 ADR-013 反映）</span></div>
+    <div class="badge">最終更新 <span>2026-06-24</span></div>
+    <div class="badge">本書 <span>設計・仕様の正本（HTML）</span></div>
+  </div>
+
+  <div class="note">
+    <strong>本書の位置づけ:</strong> Web フロントエンドの設計・仕様の<strong>正本</strong>（API 契約・状態管理・画面/再生設計・受け入れ基準）。視覚デザイン（配色・フォント・レイアウトトークン）の正本は <a href="app-ui.html">app-ui.html</a>。旧 <code>docs/spec/2026-06-10-web-frontend-spec.md</code> は本書へ統合し廃止。
   </div>
 
   <!-- ======= OVERVIEW ======= -->
@@ -97,7 +102,7 @@
     <tr><th>項目</th><th>選定技術</th><th>理由</th></tr>
     <tr><td>フレームワーク</td><td>Next.js 15 (App Router)</td><td>SSR 対応・型安全・ファイルベースルーティング</td></tr>
     <tr><td>言語</td><td>TypeScript</td><td>API レスポンス型の共有・バグ早期発見</td></tr>
-    <tr><td>スタイリング</td><td>Tailwind CSS v4</td><td>ユーティリティファーストで高速開発</td></tr>
+    <tr><td>スタイリング</td><td>純 CSS（<code>app/globals.css</code> 一元管理）+ CSS 変数デザイントークン</td><td>Tailwind 等のユーティリティ CSS は使わない。トークンでテーマ（dark/light）を一元制御（<a href="../adr/003-web-pure-css-design-tokens.md">ADR-003</a>）。視覚仕様の正本は <a href="app-ui.html">app-ui.html</a></td></tr>
     <tr><td>音声再生</td><td>HTML5 Audio API（ライブラリなし）</td><td>追加依存なし・速度制御・シーク標準対応</td></tr>
     <tr><td>状態管理</td><td>React Context + useReducer</td><td>グローバル状態（APIキー・再生状態）のみ管理。Zustand 等不要な規模。</td></tr>
     <tr><td>API 通信</td><td>fetch API（カスタムラッパー）</td><td>追加ライブラリ不要。App Router の Server Components とも相性良い。</td></tr>
@@ -245,12 +250,13 @@
     <p>生成済み Podcast をカード形式で表示する。</p>
     <table>
       <tr><th>要素</th><th>詳細</th></tr>
-      <tr><td>エピソードカード</td><td>日本語イントロ（先頭 80 文字）・難易度バッジ・再生時間・生成日</td></tr>
-      <tr><td>ステータス表示</td><td>生成中: スピナー + 「生成中...」、失敗: エラーアイコン、完了: 再生ボタン</td></tr>
+      <tr><td>エピソードカード</td><td>日本語イントロ（CSS 2 行クランプで表示。旧「先頭 80 文字 slice」は撤去）・難易度バッジ・再生時間・生成日</td></tr>
+      <tr><td>フィルタ</td><td>タブ切替「すべて / ★ スター済み」（2026-06-12）</td></tr>
       <tr><td>再生ボタン</td><td>クリック → AudioPlayerBar にエピソードをセットし再生開始</td></tr>
-      <tr><td>ポーリング</td><td>status=processing のエピソードは 5 秒ごとに GET /podcasts/:id で状態確認</td></tr>
+      <tr><td>更新</td><td>pull-to-refresh / 再取得で完成エピソードを反映</td></tr>
       <tr><td>詳細リンク</td><td>カードクリック → /podcast/:id でイントロ全文表示</td></tr>
     </table>
+    <div class="note"><strong>生成中ステータスのポーリングは実装しない（Phase 2）。</strong> 現行 <code>PodcastResponse</code> に <code>status</code> は含まれず（<a href="../adr/011-podcast-generation-status.md">ADR-011</a>）、StatusBadge / 5 秒ポーリングは行わない。完成したエピソードは再取得で表示する。</div>
   </div>
 
   <div class="screen">
@@ -320,7 +326,7 @@
     <div class="comp"><strong>SubscriptionRow</strong><span>ソース名・URL・削除ボタン。各行。</span></div>
     <div class="comp"><strong>AddSubscriptionForm</strong><span>ソース名 + URL 入力フォーム。インラインバリデーション付き。</span></div>
     <div class="comp"><strong>DifficultyBadge</strong><span>難易度を色分けバッジで表示。</span></div>
-    <div class="comp"><strong>StatusBadge</strong><span>processing/completed/failed を色付きバッジで表示。</span></div>
+    <div class="comp"><strong>ThemeToggle</strong><span>dark/light テーマ切替（トークン制御・ADR-004）。</span></div>
     <div class="comp"><strong>Toast</strong><span>成功/エラーのフィードバック通知（3 秒後に消える）。</span></div>
     <div class="comp"><strong>SetupModal</strong><span>API キー未設定時にモーダル表示。</span></div>
     <div class="comp"><strong>LoginModal</strong><span>未認証時に表示。username + パスワード。失敗は汎用文言。</span></div>
@@ -472,13 +478,12 @@
     <tr><td>type</td><td>'single' | 'digest'</td><td>単一記事 / ダイジェストの種別</td></tr>
     <tr><td>article_ids</td><td>string[]</td><td>対象記事 ID の配列</td></tr>
     <tr><td>difficulty</td><td>DifficultyLevel</td><td>難易度</td></tr>
-    <tr><td>audio_url</td><td>string | null</td><td>音声ファイル URL（未生成時は null）</td></tr>
+    <tr><td>audio_url</td><td>string</td><td>署名付き音声 URL（API が GCS blob から変換して返す。期限切れ時は再取得・ADR-009）</td></tr>
     <tr><td>japanese_intro_text</td><td>string</td><td>日本語イントロ文</td></tr>
     <tr><td>duration_seconds</td><td>number</td><td>総再生時間（秒）</td></tr>
-    <tr><td>status</td><td>'processing' | 'completed' | 'failed' | 'partial_failed'</td><td>生成ステータス</td></tr>
-    <tr><td>playback_position_seconds</td><td>number</td><td>保存済み再生位置（秒）</td></tr>
     <tr><td>created_at</td><td>string</td><td>生成日時</td></tr>
   </table>
+  <div class="note"><code>PodcastResponse</code> に <code>status</code> / 再生位置は<strong>含まれない</strong>（生成中表示は Phase 2・ADR-011／再生位置は端末ローカル保存・ADR-008）。</div>
 
   <p>Source（RSS 購読ソース）</p>
   <table>
@@ -519,7 +524,7 @@
     <tr><td>components/subscriptions/SubscriptionRow.tsx</td><td>購読ソースの行</td></tr>
     <tr><td>components/subscriptions/AddSubscriptionForm.tsx</td><td>URL 入力フォーム</td></tr>
     <tr><td>components/ui/DifficultyBadge.tsx</td><td>難易度バッジ</td></tr>
-    <tr><td>components/ui/StatusBadge.tsx</td><td>ステータスバッジ</td></tr>
+    <tr><td>components/ui/ThemeToggle.tsx</td><td>dark/light テーマ切替（ADR-004）</td></tr>
     <tr><td>components/ui/Toast.tsx</td><td>トースト通知</td></tr>
     <tr><td>components/ui/ConfirmDialog.tsx</td><td>確認ダイアログ</td></tr>
     <tr><td>components/ui/SetupModal.tsx</td><td>初期設定モーダル</td></tr>
@@ -529,15 +534,14 @@
     <tr><td>components/providers/AppProvider.tsx</td><td>AppContext のプロバイダ</td></tr>
     <tr><td>contexts/AppContext.tsx</td><td>グローバル状態の定義</td></tr>
     <tr><td>contexts/AuthContext.tsx</td><td>認証状態の定義（ADR-013）</td></tr>
-    <tr><td>hooks/useAudioPlayer.ts</td><td>HTML5 Audio API ラッパー</td></tr>
-    <tr><td>hooks/usePodcastPolling.ts</td><td>生成中 Podcast のポーリング</td></tr>
+    <tr><td>hooks/useAudioPlayer.ts</td><td>HTML5 Audio API ラッパー（署名付き URL 期限切れ時の再取得・ADR-009）</td></tr>
     <tr><td>hooks/useLocalStorage.ts</td><td>localStorage の型付きラッパー</td></tr>
     <tr><td>lib/api.ts</td><td>API クライアント・全 API 関数</td></tr>
     <tr><td>lib/config.ts</td><td>localStorage キー定数</td></tr>
     <tr><td>types/index.ts</td><td>全型定義</td></tr>
     <tr><td>Dockerfile</td><td>Cloud Run 用コンテナビルド定義</td></tr>
     <tr><td>next.config.ts</td><td>Next.js 設定</td></tr>
-    <tr><td>tailwind.config.ts</td><td>Tailwind CSS 設定</td></tr>
+    <tr><td>app/globals.css</td><td>純 CSS + デザイントークン（テーマ一元管理・ADR-003。視覚正本は app-ui.html）</td></tr>
     <tr><td>tsconfig.json</td><td>TypeScript 設定</td></tr>
   </table>
 
@@ -573,7 +577,7 @@
     <tr><td>Star/Dismiss 操作</td><td>★ ボタン / × ボタン</td><td>右/左スワイプ</td></tr>
     <tr><td>音声再生</td><td>HTML5 Audio API + カスタム UI</td><td>AVFoundation (AVPlayer)</td></tr>
     <tr><td>設定永続化</td><td>localStorage</td><td>UserDefaults</td></tr>
-    <tr><td>Push 通知</td><td>ポーリング（5 秒）→ Web Push（P2）</td><td>APNs（P2）</td></tr>
+    <tr><td>Push 通知</td><td>再取得（pull-to-refresh）。Web Push は P2</td><td>APNs（P2）</td></tr>
     <tr><td>オフライン再生</td><td>Service Worker キャッシュ（P2）</td><td>デバイスキャッシュ（P2）</td></tr>
     <tr><td>RSS 購読管理</td><td>/subscriptions 専用ページ</td><td>SubscriptionsView（タブ遷移）</td></tr>
     <tr><td>API 設定</td><td>localStorage（SetupModal 初回）</td><td>UserDefaults（InitialSetupView 初回）</td></tr>
