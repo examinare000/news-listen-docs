@@ -264,6 +264,18 @@ sequenceDiagram
 | `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASS` | — | 初期 admin の資格情報（seed 用）。 |
 | `INITIAL_USER_USERNAME` / `INITIAL_USER_PASSWORD` | — | 初期 user の資格情報（seed 用）。 |
 
+### パスワード強度・セッションローテーション（[ADR-017](../adr/017-password-strength-and-session-rotation.md)）
+
+弱いパスワードの新規作成を防ぎ、固定セッションのリスクを下げる。
+
+| 観点 | 設計 |
+|-----|------|
+| 強度ポリシー | 純粋関数 `validate_password_strength`（`shared/password_policy.py`）。最小長 12・文字クラス（小文字/大文字/数字/記号）3 種以上・オフライン同梱ブロックリスト（`shared/data/common_passwords.txt`）不該当・ユーザー名非包含。違反は `ValueError`（平文 PW 非含有）→ `422` |
+| 適用範囲 | **新規・変更パスワードのみ**（`UserCreateRequest.password`・`PasswordChangeRequest.new_password`・`UserUpdateRequest.new_password`）。`LoginRequest.password` は**対象外**（既存ユーザーのログインを壊さない） |
+| しきい値 | 定数固定（環境変数化しない）。運用者が緩める方向の事故を防ぐ |
+| セッションローテーション | `login` で**認証成功後・新トークン発行前**に、提示された旧トークンがあれば `delete_session(hash_token(old))` で失効（固定化対策・冪等）。失敗ログインでは実行されない |
+| 機微情報秘匿 | `api/main.py` の `RequestValidationError` ハンドラが、検証エラー本文から機微フィールド（`password`/`new_password`/`current_password`）の送信値（`input`/`ctx`）を伏せる。弱い PW を送っても 422 本文に平文が出ない |
+
 ---
 
 ## 7. セキュリティ（SSRF / レートリミット）
@@ -271,6 +283,19 @@ sequenceDiagram
 ### API キー比較
 
 グローバルの `X-API-Key` は `hmac.compare_digest` による**定数時間比較**で検証する（タイミング攻撃対策）。
+
+### CORS・セキュリティヘッダ（[ADR-016](../adr/016-cors-and-security-headers.md)）
+
+ブラウザからの別オリジン直接アクセスを安全に許可しつつ、httpOnly Cookie 認証の防御（クリックジャッキング・MIME スニッフィング対策）を補完する。`api/main.py` で **CORS（内側）→ SecurityHeaders（外側）** の順にミドルウェアを登録する（Starlette は逆順適用。最外層となる SecurityHeaders がプリフライト応答にもヘッダを付与し、CORS ヘッダは上書きしない）。
+
+| 観点 | 設計 |
+|-----|------|
+| CORS 許可オリジン | `CORS_ALLOWED_ORIGINS`（カンマ区切り）を `build_cors_options`（`api/cors_config.py`）で解析。未設定/空は**全拒否**（安全側）。`*` 不使用、`allow_credentials=True` |
+| CORS メソッド/ヘッダ | `allow_methods`=`GET/POST/PUT/PATCH/DELETE/OPTIONS`（`PATCH`/`PUT` は実使用中）。`allow_headers`=`X-API-Key`・`Authorization`・`Content-Type` |
+| セキュリティヘッダ | `build_security_headers`（`api/middleware/security_headers.py`）が構築し `SecurityHeadersMiddleware` が全レスポンスに付与。CSP（既定 `default-src 'none'; frame-ancestors 'none'`）・`X-Frame-Options: DENY`・`X-Content-Type-Options: nosniff`・`Referrer-Policy: no-referrer` |
+| HSTS | `SECURITY_HSTS_ENABLED` が真のときのみ `Strict-Transport-Security: max-age={SECURITY_HSTS_MAX_AGE}; includeSubDomains` を付与（既定無効。ローカル HTTP を壊さない） |
+| 環境変数 | `CORS_ALLOWED_ORIGINS`・`SECURITY_CSP`・`SECURITY_X_FRAME_OPTIONS`・`SECURITY_X_CONTENT_TYPE_OPTIONS`・`SECURITY_REFERRER_POLICY`・`SECURITY_HSTS_ENABLED`・`SECURITY_HSTS_MAX_AGE`（`.env.example` 参照） |
+| ADR-001 との関係 | バックエンド CORS の用意により、Web の BFF プロキシ撤去（[ADR-001](../adr/001-web-bff-proxy.md) フェーズ2残課題）に着手可能となる |
 
 ### ログイン試行レートリミット（[ADR-014](../adr/014-login-rate-limiting.md)）
 
