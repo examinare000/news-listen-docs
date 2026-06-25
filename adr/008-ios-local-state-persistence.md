@@ -1,9 +1,11 @@
 # ADR-008: 再生位置・既定設定・認証情報を端末ローカルに保存する
 
-**ステータス:** 採用済み
+**ステータス:** 一部廃止（再生位置・既定設定のサーバー保存方針は [ADR-022](022-server-side-playback-position-and-preferences.md) で上書き。認証情報のローカル保存は有効）
 **決定日:** 2026-06-14
 **対象読者:** iOS 開発者
-**関連:** [要件 §1.1](../plan/2026-06-14-ios-app-requirements.md)・`agent-rules/12-security-guidelines.md`
+**関連:** [要件 §1.1](../plan/2026-06-14-ios-app-requirements.md)・`agent-rules/12-security-guidelines.md`・[ADR-022](022-server-side-playback-position-and-preferences.md)（再生位置・既定設定のサーバー保存で本 ADR を一部上書き）
+
+> ⚠️ **一部廃止（2026-06-25）:** 本 ADR の「再生位置・既定設定をサーバー保存しない」という決定は、端末間同期の要件化（issue #12・#13）により [ADR-022](022-server-side-playback-position-and-preferences.md) で上書きされた。再生位置・既定難易度・既定再生速度の正本はサーバー（`podcasts`／`userPrefs`）に移行している。**認証情報（API キー）の端末ローカル保存・Keychain 移行方針は引き続き有効**。以下の決定本文は経緯の記録として残す。
 
 ## 背景
 
