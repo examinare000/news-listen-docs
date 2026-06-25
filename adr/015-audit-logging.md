@@ -5,7 +5,7 @@
 **対象読者:** バックエンド / 運用担当者
 **関連:** [ADR-013](013-session-auth-and-user-management.md)（セッション認証・ユーザー管理）・[ADR-014](014-login-rate-limiting.md)（レートリミット・基盤共有）・[backend issue #8](../../../issues/8)・`agent-rules/12-security-guidelines.md`
 
-> **補足（2026-06-25・issue #42）:** 本 ADR の `AuditLogger` 基盤を**利用者のデータ変更操作**へ拡張した（当初は auth/admin のみ計装）。追加 `AuditAction`: `article_star` / `article_dismiss` / `rss_source_add` / `rss_source_remove` / `preferences_update` / `onboarding_complete`（issue #44 で `article_mark_read` も追加）。`api/routers/articles.py`・`api/routers/settings.py` の各書き込みエンドポイントに `record(...)` を計装（actor は `get_current_user` の Session、DB 変更成功後に記録し 404/409 等のエラー時は記録しない）。`details` は対象識別子のみ（article_id・RSS url/name）で、**プリファレンス更新は変更フィールド名のみ・値は記録しない**（機微情報非記録の方針を踏襲）。基盤・記録項目・ベストエフォート・改竄防止の決定本文は不変。
+> **補足（2026-06-25・issue #42）:** 本 ADR の `AuditLogger` 基盤を**利用者のデータ変更操作**へ拡張した（当初は auth/admin のみ計装）。追加 `AuditAction`: `article_star` / `article_dismiss` / `rss_source_add` / `rss_source_remove` / `preferences_update` / `onboarding_complete`（issue #44 で `article_mark_read`、issue #47 で `storage_cleanup` も追加）。`api/routers/articles.py`・`api/routers/settings.py` の各書き込みエンドポイントに `record(...)` を計装（actor は `get_current_user` の Session、DB 変更成功後に記録し 404/409 等のエラー時は記録しない）。`details` は対象識別子のみ（article_id・RSS url/name）で、**プリファレンス更新は変更フィールド名のみ・値は記録しない**（機微情報非記録の方針を踏襲）。基盤・記録項目・ベストエフォート・改竄防止の決定本文は不変。
 
 ## 背景
 
