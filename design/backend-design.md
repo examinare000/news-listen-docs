@@ -720,9 +720,8 @@ username + password を検証し、セッショントークンを発行する。
 | `GOOGLE_CLOUD_PROJECT` / `GCP_REGION` | — / asia-northeast1 | Cloud Run Jobs ディスパッチ先 |
 | `GEMINI_API_KEY` / `GCS_BUCKET_NAME` | — | Gemini / 音声ストレージ（ジョブ必須） |
 | `LOGIN_RATELIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` / `_LOCKOUT_SECONDS` | 5 / 900 / 900 | ログイン試行レートリミット（0 で無効化・ADR-014） |
-| `SEED_USERS_ON_STARTUP` | — | 設定時、API 起動時に seed_users を実行 |
 
-認証関連（`SESSION_TTL_HOURS` / `SESSION_COOKIE_SECURE` / `INITIAL_*`）は [§6](#6-認証ユーザー管理adr-013) を参照。
+認証関連（`SESSION_TTL_HOURS` / `SESSION_COOKIE_SECURE` / `INITIAL_*`）は [§6](#6-認証ユーザー管理adr-013) を参照。初期ユーザー投入は `python -m scripts.seed_users`（`INITIAL_*` を使用）で**手動実行**する（起動時自動投入のフックは無い）。
 
 ---
 
