@@ -100,7 +100,7 @@
 | 英語本編 | 記事本文＋関連ニュースを英語で掛け合い（男性話者A・女性話者B）形式で読み上げ | P0 |
 | 難易度選択 | 6段階（下記 [9節](#9-podcast-スクリプト生成仕様) 参照） | P0 |
 | 再生速度調整 | x0.5〜x2.5 の8段階（AVPlayer の rate 機能で実装） | P0 |
-| 生成進捗表示 | 生成中のエピソードはプログレスインジケーターを表示し、完了時にプッシュ通知（Web Push 実装済み・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は ios#15） | P0 |
+| 生成進捗表示 | 生成中のエピソードはプログレスインジケーターを表示（[ADR-021](../adr/021-podcast-generation-status-visualization.md) で実装済み・status ポーリング），完了時にプッシュ通知（Web Push 実装済み・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は ios#15） | P0 |
 | 再生位置保存 | アプリを閉じても秒単位で再生位置を記憶（Firestore + ローカルキャッシュ） | P0 |
 | 日次ダイジェスト | その日のおすすめ記事（Star + 高スコア記事）をまとめた1本を毎朝自動生成 | P1 |
 | オフライン再生 | 生成済み音声ファイルをデバイスにキャッシュし、オフラインでも再生可能 | P1 |
@@ -409,7 +409,7 @@ Gemini にはセリフ単位の構造化 JSON を出力させ、そのまま TTS
 
 Web 版（PR #7 で新デザイン適用済み）は実装済み API 契約を正としており（ADR-002）、以下は**バックエンド API の拡張が前提**の機能:
 
-- Podcast 生成ステータス表示・ポーリング（`PodcastResponse` への `status` / `error_message` 追加が前提）
+- ~~Podcast 生成ステータス表示・ポーリング~~ **実装済み**（issue #38・[ADR-021](../adr/021-podcast-generation-status-visualization.md)）。`PodcastResponse` に `status` / `error_message` を公開、Web は StatusBadge + 5 秒ポーリングで表示
 - 再生位置のサーバー同期・端末間共有（`PATCH /podcasts/:id/position` 新設が前提。現状は localStorage のみ）
 - デフォルト難易度のユーザー設定（`GET/PUT /settings` 新設 + podcast-generator の難易度参照変更が前提）
 - フィードの未読管理・「未読」タブ（既読管理 API が前提）

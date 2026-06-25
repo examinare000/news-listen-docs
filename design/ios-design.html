@@ -99,7 +99,7 @@
     ①再生位置・既定設定（難易度／速度）はサーバー API ではなく端末ローカル（UserDefaults）保存（<code>PATCH /podcasts/:id/position</code>・<code>PUT /settings</code> は<strong>存在しない</strong>）。
     ②RSS は <code>/settings/sources</code>（URL キー・ID なし）で操作。
     ③<code>audio_url</code> は 1 時間失効の署名付き URL のため再生直前に再取得。
-    ④<code>status</code> は現行 Podcast レスポンスに未含有のため生成中ポーリングは Phase 2 課題（<a href="../adr/011-podcast-generation-status.md">ADR-011</a>）。
+    ④<code>status</code> は API が提供済み（issue #38・<a href="../adr/021-podcast-generation-status-visualization.md">ADR-021</a>）。iOS 側の生成中ポーリング表示は iOS アプリの未対応として ios#15 で対応予定。当面は pull-to-refresh で完成エピソードを表示。
     ⑤利用者はログイン必須（<a href="../adr/013-session-auth-and-user-management.md">ADR-013</a>）。セッショントークンは Keychain 保管、<code>Authorization: Bearer</code> で送出。
   </div>
 
@@ -218,7 +218,7 @@
     <table>
       <tr><th>要素</th><th>詳細</th></tr>
       <tr><td>エピソードリスト</td><td>タイトル・難易度バッジ・種別・イントロ抜粋・再生時間・続き位置</td></tr>
-      <tr><td>生成状態表示</td><td>現行 API レスポンスに <code>status</code> 未含有のため生成中ポーリングは Phase 2（<a href="../adr/011-podcast-generation-status.md">ADR-011</a>）。pull-to-refresh で完成エピソードを表示</td></tr>
+      <tr><td>生成状態表示</td><td>API は <code>status</code> を提供済み（issue #38・<a href="../adr/021-podcast-generation-status-visualization.md">ADR-021</a>）。iOS 側の生成中ポーリング表示は iOS アプリの未対応。当面は pull-to-refresh で完成エピソードを表示</td></tr>
       <tr><td>再生</td><td>タップで再生（§7 フロー）。詳細はサブ画面で全文表示</td></tr>
     </table>
   </div>
