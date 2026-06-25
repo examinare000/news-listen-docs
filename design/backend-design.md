@@ -358,11 +358,11 @@ Podcast 生成完了時にユーザーへ Web Push で非同期通知する。W3
 
 ### 監査ログ（[ADR-015](../adr/015-audit-logging.md)）
 
-「誰がいつ何をしたか」を事後追跡するため、認証イベントと admin 操作を `auditLogs` コレクションへ追記する。記録の意思決定は薄いサービス層 `AuditLogger`（`api/audit.py`）に集約し、各ルータからは1行の `record(...)` 呼び出しだけにする。
+「誰がいつ何をしたか」を事後追跡するため、認証イベント・admin 操作・**利用者のデータ変更操作**を `auditLogs` コレクションへ追記する。記録の意思決定は薄いサービス層 `AuditLogger`（`api/audit.py`）に集約し、各ルータからは1行の `record(...)` 呼び出しだけにする。
 
 | 観点 | 設計 |
 |-----|------|
-| 記録対象 | ログイン成功/失敗・ロックアウト・ログアウト・ユーザー CRUD（作成/更新/ロール変更/PW リセット/削除）・セッション失効 |
+| 記録対象 | ログイン成功/失敗・ロックアウト・ログアウト・ユーザー CRUD（作成/更新/ロール変更/PW リセット/削除）・セッション失効、および**データ変更操作**（記事 star/dismiss・RSS ソース追加/削除・プリファレンス更新・オンボーディング完了。issue #42 で拡大）。データ変更系の actor は `get_current_user`（Session）から取得し、`details` には対象（article_id・RSS url/name）のみを記録。**プリファレンス更新は変更フィールド名のみで値は記録しない** |
 | 記録項目 | action（Literal 列挙）・timestamp・actor（user_id / username）・target_username・ip・details。**平文 PW・生トークン・password_hash は記録しない** |
 | IP の扱い | フォレンジック用途のため**生 IP を保存**する（レートリミットの IP ハッシュ化とは方針が異なる・ADR-015）。`get_client_ip` の値をそのまま記録 |
 | ベストエフォート | 監査書き込みの失敗で本操作（ログイン/CRUD）を失敗させない。例外は `AuditLogger.record` の1箇所で捕捉し error ログ化する（`append_audit_log` は握り潰さず伝播）。clock は注入可能でテスト時に固定する |
