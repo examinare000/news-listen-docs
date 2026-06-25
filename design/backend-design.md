@@ -163,7 +163,7 @@ sequenceDiagram
 | ジョブ | 責務 / 契約 |
 |--------|-----------|
 | rss-fetcher-job<br>（jobs/rss_fetcher） | ユーザーの RSS ソースを `feedparser` で取得し新規記事を保存。記事 URL の SHA-256（先頭 20 文字）を doc-id とし、`article_exists` で重複排除。`content` が 200 文字未満なら `trafilatura`（ContentExtractor）で本文補完。外部取得は SSRF 対策の `safe_fetch` 経由（[§7](#7-セキュリティssrfレートリミット)）。 |
-| recommendation-job<br>（jobs/recommendation） | Star（好み）/ Dismiss（非好み）履歴と直近記事を Gemini に渡し 0.0〜1.0 のスコアを付与（`score_articles(candidates, starred, dismissed)`、temperature 0.2）。候補集合外の ID（幻覚）は除外。Gemini 失敗時は全候補に 0.5 のフォールバック。当日の `recommendations/{user_id}_{date}` に保存。 |
+| recommendation-job<br>（jobs/recommendation） | Star（好み）/ Dismiss（非好み）履歴と直近記事を Gemini に渡し 0.0〜1.0 のスコアを付与（`score_articles(candidates, starred, dismissed)`、temperature 0.2）。**安定部分（指示＋履歴）を Gemini Context Caching し可変部分（候補）のみ毎回送信してコスト削減**（[ADR-028](../adr/028-recommendation-context-caching.md)。ADR-005 由来の同日再実行で効く。min-token 未満／失敗時は通常呼び出しへ安全縮退・結果不変）。候補集合外の ID（幻覚）は除外。Gemini 失敗時は全候補に 0.5 のフォールバック。当日の `recommendations/{user_id}_{date}` に保存。 |
 | podcast-generator-job<br>（jobs/podcast_generator） | Star 済み記事から日本語イントロ + 英語本編のスクリプトを生成（難易度別指示）し、TTS で音声（PCM 24kHz/mono/16bit、Kore + Puck）を合成。クロスユーザー共有キャッシュで生成・配布（[§5](#5-podcast-生成キャッシュadr-006)）。 |
 | digest-generator-job<br>（jobs/digest_generator） | 毎朝、ユーザーの Star ∩ 当日高スコア記事を上位 `digest_article_count`（3〜10）件選び、1 本のダイジェスト Podcast（`type="digest"`・複数 article_ids）を生成（[ADR-024](../adr/024-daily-digest-generation.md)）。**クロスユーザーキャッシュは使わず**、決定論的 doc-id `{user_id}_{date}_digest` で冪等に `save_podcast` する。`digest_enabled=false` や対象 0 件は生成しない。TTS 部分失敗は `partial_failed`（ADR-023）。Cloud Scheduler で recommendation の後に起動。 |
 
