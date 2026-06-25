@@ -1,9 +1,9 @@
 # ADR-011: Podcast 生成状態の表示はバックエンド変更を前提とし Phase 1 では対象外とする
 
-**ステータス:** 検討中
+**ステータス:** 更新（[ADR-021](021-podcast-generation-status-visualization.md) により Phase 2 として実現済み）
 **決定日:** 2026-06-14
 **対象読者:** iOS 開発者・バックエンド開発者
-**関連:** [ADR-005](005-job-trigger-on-action.md)・[ADR-006](006-cross-user-podcast-cache.md)・[要件 §1.1](../plan/2026-06-14-ios-app-requirements.md)
+**関連:** [ADR-005](005-job-trigger-on-action.md)・[ADR-006](006-cross-user-podcast-cache.md)・[要件 §1.1](../plan/2026-06-14-ios-app-requirements.md)・[ADR-021](021-podcast-generation-status-visualization.md)（上書き）
 
 ## 背景
 

@@ -201,7 +201,7 @@ sequenceDiagram
 | 所有関係 | 各ユーザーは自身の `Podcast` を持ち、音声 blob はキャッシュを共有参照する |
 | 失敗時 | キャッシュ / Podcast を `failed` でマークし再試行可能にする（`error_message` 保持） |
 
-> **生成ステータス（[ADR-011](../adr/011-podcast-generation-status.md)）:** `Podcast.status` は `processing → completed / failed / partial_failed`。可観測性のため永続化するが、現行の `PodcastResponse` には含めない（iOS のポーリング表示は Phase 2 課題）。
+> **生成ステータス（[ADR-021](../adr/021-podcast-generation-status-visualization.md)）:** `Podcast.status` は `processing → completed / failed / partial_failed`。`PodcastResponse` に `status`・`error_message` を公開済み（issue #38）。Star は 202 で processing 行を原子的に保存し、生成完了で completed へ昇格。iOS 側の status 消費（生成中ポーリング表示）は別途対応予定。
 
 ---
 
