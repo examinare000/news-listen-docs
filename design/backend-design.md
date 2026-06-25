@@ -165,6 +165,7 @@ sequenceDiagram
 | rss-fetcher-job<br>（jobs/rss_fetcher） | ユーザーの RSS ソースを `feedparser` で取得し新規記事を保存。記事 URL の SHA-256（先頭 20 文字）を doc-id とし、`article_exists` で重複排除。`content` が 200 文字未満なら `trafilatura`（ContentExtractor）で本文補完。外部取得は SSRF 対策の `safe_fetch` 経由（[§7](#7-セキュリティssrfレートリミット)）。 |
 | recommendation-job<br>（jobs/recommendation） | Star（好み）/ Dismiss（非好み）履歴と直近記事を Gemini に渡し 0.0〜1.0 のスコアを付与（`score_articles(candidates, starred, dismissed)`、temperature 0.2）。候補集合外の ID（幻覚）は除外。Gemini 失敗時は全候補に 0.5 のフォールバック。当日の `recommendations/{user_id}_{date}` に保存。 |
 | podcast-generator-job<br>（jobs/podcast_generator） | Star 済み記事から日本語イントロ + 英語本編のスクリプトを生成（難易度別指示）し、TTS で音声（PCM 24kHz/mono/16bit、Kore + Puck）を合成。クロスユーザー共有キャッシュで生成・配布（[§5](#5-podcast-生成キャッシュadr-006)）。 |
+| digest-generator-job<br>（jobs/digest_generator） | 毎朝、ユーザーの Star ∩ 当日高スコア記事を上位 `digest_article_count`（3〜10）件選び、1 本のダイジェスト Podcast（`type="digest"`・複数 article_ids）を生成（[ADR-024](../adr/024-daily-digest-generation.md)）。**クロスユーザーキャッシュは使わず**、決定論的 doc-id `{user_id}_{date}_digest` で冪等に `save_podcast` する。`digest_enabled=false` や対象 0 件は生成しない。TTS 部分失敗は `partial_failed`（ADR-023）。Cloud Scheduler で recommendation の後に起動。 |
 
 > **難易度:** `toeic_600 / toeic_900 / ielts_55 / ielts_7 / eiken_2 / eiken_p1` の 6 種。プレーン文字列として扱い、スクリプト生成プロンプトに難易度別の語彙・文構造の指示を埋め込む。
 
@@ -202,6 +203,8 @@ sequenceDiagram
 | 所有関係 | 各ユーザーは自身の `Podcast` を持ち、音声 blob はキャッシュを共有参照する |
 | 失敗時 | キャッシュ / Podcast を `failed` でマークし再試行可能にする（`error_message` 保持） |
 | TTS 一部失敗 | セグメント（JP イントロ / EN 本編）単位でリトライ（`ValueError` のみ・既定 2 回・スリープ無し）し、成功分のみスキップ結合して音声を完成させる。per-user Podcast は `partial_failed`＋失敗セグメント名の `error_message`、共有キャッシュは `failed` に留め自己修復（[ADR-023](../adr/023-tts-partial-failure-skip-join.md)・issue #41） |
+
+> **ダイジェストはキャッシュ外（[ADR-024](../adr/024-daily-digest-generation.md)）:** `type="digest"` はユーザーの Star 集合＋当日スコアに依存し共有できないため、本節のクロスユーザーキャッシュ（`PodcastCache`）を**使わない**。digest-generator-job が決定論的 doc-id で直接 `save_podcast` する。
 
 > **生成ステータス（[ADR-021](../adr/021-podcast-generation-status-visualization.md)・[ADR-023](../adr/023-tts-partial-failure-skip-join.md)）:** `Podcast.status` は `processing → completed / failed / partial_failed`。`PodcastResponse` に `status`・`error_message` を公開済み（issue #38）。Star は 202 で processing 行を原子的に保存し、生成完了で completed へ昇格。**TTS が一部セリフのみ失敗した場合は成功分をスキップ結合して `partial_failed` を記録**する（generator 側実装は ADR-023・issue #41）。`CacheStatus` は 3 値（`partial_failed` を持たない）。iOS 側の status 消費（生成中ポーリング表示）は別途対応予定。
 
