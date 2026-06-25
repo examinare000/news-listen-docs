@@ -3,7 +3,9 @@
 **ステータス:** 採用済み  
 **決定日:** 2026-06-25  
 **対象読者:** バックエンド / Web / iOS 開発者  
-**関連:** [ADR-011](011-podcast-generation-status.md)（本 ADR が更新・実現）・[ADR-005](005-job-trigger-on-action.md)・[ADR-006](006-cross-user-podcast-cache.md)・`backend/api/routers/articles.py`・`backend/jobs/podcast_generator/main.py`・backend PR #24/#25（issue #38）
+**関連:** [ADR-011](011-podcast-generation-status.md)（本 ADR が更新・実現）・[ADR-005](005-job-trigger-on-action.md)・[ADR-006](006-cross-user-podcast-cache.md)・[ADR-023](023-tts-partial-failure-skip-join.md)（partial_failed の generator 側実装）・`backend/api/routers/articles.py`・`backend/jobs/podcast_generator/main.py`・backend PR #24/#25（issue #38）
+
+> **補足（2026-06-25・issue #41）:** 本 ADR は status 値 `partial_failed` を定義したが、当時 generator は `completed`/`failed` のみ書いていた。TTS 一部失敗時にスキップ結合して `partial_failed` を実際に記録する generator 側の実装は [ADR-023](023-tts-partial-failure-skip-join.md) で採用済み。
 
 ## 背景（ADR-011 の Phase 2 実現）
 
