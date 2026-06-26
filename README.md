@@ -25,7 +25,8 @@
 | 計画 | [plan/](plan/) | 実装計画・タスク指示（作業領域・完了後削除） | 進行中タスクの計画を見るとき |
 | 運用 | [operations/](operations/) | デプロイ状況・ローカル開発手順 | デプロイ・運用の現状を知るとき |
 | 技術文書 | [tech/](tech/) | 技術的負債等 | 負債・技術メモを見るとき |
-| 調査 | [research-reports/](research-reports/) | 調査・評価レポート | 過去の調査結論を参照するとき |
+| 調査 | [research-reports/](research-reports/) | 調査・評価レポート（一覧） | 過去の調査結論を参照するとき |
+| 調査（最新） | [research-reports/2026-06-26-antigravity-best-practices.md](research-reports/2026-06-26-antigravity-best-practices.md) | Antigravity 運用ベストプラクティスと適用プラン | エージェント（自身）の効率・精度向上プランを見るとき |
 
 ## 推奨読順
 
