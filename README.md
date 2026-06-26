@@ -21,6 +21,7 @@
 | 区分 | 場所 | 内容 | いつ読むか |
 |---|---|---|---|
 | ADR | [adr/](adr/) | アーキテクチャ決定レコード（追記型） | 「なぜこの設計か」を知る・新決定を記録するとき |
+| ADR（最新） | [adr/035-passkey-webauthn-adoption.md](adr/035-passkey-webauthn-adoption.md) | Passkey（WebAuthn/FIDO2）認証の採用 | 認証フロー・フィッシング耐性・セキュリティ設計を理解するとき |
 | PRD | [prd/](prd/) | 要件定義・Phase 2 候補 | 要件・スコープを確認するとき |
 | 計画 | [plan/](plan/) | 実装計画・タスク指示（作業領域・完了後削除） | 進行中タスクの計画を見るとき |
 | 運用 | [operations/](operations/) | デプロイ状況・ローカル開発手順 | デプロイ・運用の現状を知るとき |
