@@ -1,8 +1,8 @@
 # デプロイ状況記録
 
 - **対象読者**: 本プロジェクトの運用・開発担当
-- **最終更新日**: 2026-06-11
-- **ステータス**: 本番デプロイは Phase 4 まで完了し、Phase 5 直前で**意図的に中断**。ローカル Docker での PoC 検証を優先するため。
+- **最終更新日**: 2026-06-27
+- **ステータス**: フロントエンド（Vercel）本番デプロイ完了（Phase 6 ✅／§7 参照）。backend は Cloud Run で稼働中（Phase 4 ✅）。残るは Phase 5（初期データ投入）と Phase 7（E2E 確認）。
 
 ## 1. 決定事項（前提）
 
@@ -38,8 +38,8 @@ flowchart LR
 | Phase 2 | 署名 URL を IAM signBlob 方式へ修正（TDD） | ✅ 完了（`feature/signed-url-iam`、storage 含め 93 passed） |
 | Phase 3 | GCP リソース作成（`infra/setup.sh`） | ✅ 完了（冪等。signBlob 権限 / iamcredentials API を新規反映） |
 | Phase 4 | backend デプロイ（`infra/deploy.sh`） | ✅ 完了（下記） |
-| Phase 5 | 初期 RSS 投入 & ジョブ実行 | ⏸ **中断（未実施）** |
-| Phase 6 | Vercel デプロイ | ⏸ 未着手 |
+| Phase 5 | 初期 RSS 投入 & ジョブ実行 | ⏸ **未実施**（go-live ブロッカー） |
+| Phase 6 | Vercel デプロイ | ✅ **完了**（2026-06-27、§7 参照） |
 | Phase 7 | E2E 動作確認（特に署名 URL での再生実証） | ⏸ 未着手 |
 
 ## 4. Phase 4 デプロイ結果（稼働中の本番リソース）
@@ -88,3 +88,50 @@ flowchart LR
 - **Gemini ブロッカーはマージ阻害要因ではない**: §5 の `GEMINI_API_KEY` 無効によりレコメンド実スコアリングと Podcast/TTS は未実証だが、これは「PoC インフラの検証」ではなく「中核フローの実証」の宿題。インフラ自体（ビルド・起動・Firestore アクセス・RSS 取得 20 件）は検証済みのため、インフラを main に置くこと自体は妥当と判断する。
   - **残タスク（マージ後に継続）**: 有効な AI Studio キーへ差し替え → `recommendation` / `podcast-generator` を再実行し、Feed → Star → Podcast 生成・再生の中核フローを実証する。
 - **standalone 出力**: `web/next.config.ts` の `output:'standalone'` は全ビルドに影響する横断的設定。本番 Vercel は当該値を無視するため影響はないが、Docker PoC 専用の意図的設定であることを明記する（コード内コメント参照）。
+
+## 7. Phase 6 結果: Vercel フロントエンド本番デプロイ（2026-06-27）
+
+`news-listen-web`（Next.js）を Vercel に本番デプロイした。GitHub 連携による自動デプロイ方式。
+
+### 7.1 稼働中のリソース
+
+| 項目 | 値 |
+|------|-----|
+| 本番ドメイン | `https://www.news-listen.com`（canonical） |
+| apex ドメイン | `https://news-listen.com` → `308` で www へリダイレクト |
+| デプロイ識別 URL | `https://news-listen-h2w3w61is-examinare000s-projects.vercel.app` |
+| デプロイ方式 | GitHub 連携（`news-listen-web` リポジトリへの push で自動ビルド・デプロイ） |
+| 本番ブランチ | `main`（`news-listen-web` の main への push で本番デプロイ） |
+| ビルド | Vercel 既定の Next.js ビルド（`next.config.ts` の `output:'standalone'` は Vercel では無視される） |
+
+### 7.2 環境変数: **設定不要**（重要な設計事実）
+
+本フロントは **サーバーサイド環境変数を一切使用しない**（`web/` 配下に `process.env` 参照ゼロ）。
+backend URL と API キーは **ブラウザの SetupModal で利用者が入力し localStorage に保存**する方式（[ADR-001](../adr/001-web-bff-proxy.md)）。
+したがって **Vercel プロジェクト側で設定すべき環境変数は無い**。
+
+### 7.3 backend CORS: **web に関しては不要**
+
+web → backend 通信は **BFF プロキシ経由のサーバー間 fetch**（Vercel の Next.js サーバー → Cloud Run）であり、ブラウザは backend に直接アクセスしない。
+よって **web の本番化に backend の `CORS_ALLOWED_ORIGINS` 設定は不要**。
+（CORS 許可が要るのは backend を直接叩く iOS 側のみ。[ADR-007](../adr/007-ios-direct-backend-access.md) / [ADR-016](../adr/016-cors-and-security-headers.md)）
+
+### 7.4 疎通確認（2026-06-27）
+
+- `https://news-listen.com` → `308` → `https://www.news-listen.com/` → `200`（トップ `<title>Podcast App</title>`）。
+- BFF プロキシ `GET /api/backend/health`（ヘッダ無し）→ `400 {"detail":"Missing or invalid X-Backend-Base-Url header"}`（SSRF 対策が設計通り稼働）。
+- backend `GET /health` → `200` / 認証なし `GET /feed` → `401`（API キー認証が稼働）。
+
+### 7.5 利用者が本番で記事を見るための前提
+
+www.news-listen.com を開いた利用者は、SetupModal で以下を入力する必要がある:
+- **backend URL**: `https://news-listen-api-ck5vowuina-an.a.run.app`（§4 の Cloud Run、本番 backend として継続利用）
+- **API キー**: backend の `API_KEY`
+- その後ログイン（要 Phase 5 の初期ユーザー投入）。
+
+### 7.6 残りの go-live ブロッカー（Phase 5 / 7）
+
+フロントは稼働中だが、利用者がログインして記事を見るには backend 側の初期化が残る:
+- **Phase 5**: `backend/scripts/seed_users.py` で初期ユーザー投入 → RSS ソース投入 → `rss-fetcher` / `recommendation` / `podcast-generator` ジョブ実行。
+- **Gemini ブロッカー**: §5 の `GEMINI_API_KEY` 無効問題。`.env` は新形式の鍵に更新済み（要有効性確認）。
+- **Phase 7**: www.news-listen.com → SetupModal → 本番 backend の E2E（Feed → Star → Podcast 生成・署名 URL 再生）実証。
