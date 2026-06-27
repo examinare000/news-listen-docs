@@ -220,7 +220,7 @@ sequenceDiagram
 
 | 関心事 | 責務 / 契約 |
 |--------|-----------|
-| API ゲート | 全リクエストに共有 `X-API-Key` を要求（基盤防御）。`/health` のみ免除。 |
+| API ゲート | 全リクエストに共有 `X-API-Key` を要求（基盤防御）。`/health` のみ免除。検証は不変だが、キーの**クライアントへの配布方法**は [ADR-037](../adr/037-gateway-api-key-client-distribution.md) 参照（web=BFF サーバー env 注入 / iOS=ビルド時注入、ユーザー入力廃止）。 |
 | ログイン | username + password を検証し、セッショントークンを発行。Web は Cookie、iOS はレスポンスボディでトークンを受け取る。 |
 | トークン抽出順序 | ① `Authorization: Bearer`（iOS） → ② Cookie `nl_session`（Web）の順で解決する。 |
 | セッション検証 | 受領トークンを SHA-256 でハッシュ化し、`sessions/{session_id}` と突合。無効・期限切れは `401`。期限切れは遅延削除する。 |
