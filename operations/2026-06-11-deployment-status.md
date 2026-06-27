@@ -104,11 +104,27 @@ flowchart LR
 | 本番ブランチ | `main`（`news-listen-web` の main への push で本番デプロイ） |
 | ビルド | Vercel 既定の Next.js ビルド（`next.config.ts` の `output:'standalone'` は Vercel では無視される） |
 
-### 7.2 環境変数: **設定不要**（重要な設計事実）
+### 7.2 環境変数
 
-本フロントは **サーバーサイド環境変数を一切使用しない**（`web/` 配下に `process.env` 参照ゼロ）。
-backend URL と API キーは **ブラウザの SetupModal で利用者が入力し localStorage に保存**する方式（[ADR-001](../adr/001-web-bff-proxy.md)）。
-したがって **Vercel プロジェクト側で設定すべき環境変数は無い**。
+**現状（デプロイ時点）**: 本フロントは backend URL と API キーを **ブラウザの SetupModal で利用者が入力し localStorage に保存**する方式（[ADR-001](../adr/001-web-bff-proxy.md)）で稼働しており、Vercel 側で設定すべき環境変数は無い。
+
+> **🟠 移行中（[ADR-037](../adr/037-gateway-api-key-client-distribution.md)）**: 共有ゲートキー（`X-API-Key`）はエンドユーザーが入力するものではないため、**ユーザー入力を廃止し BFF がサーバー専用 env を注入する方式へ移行**する。完了後（web 側 Issue のランタイム切替マージ後）は、Vercel に以下の**非公開** env var を Production / Preview で設定する:
+>
+> | 変数 | 値 | 注意 |
+> |------|-----|------|
+> | `BACKEND_BASE_URL` | 本番 backend URL（§4 の Cloud Run） | `NEXT_PUBLIC_` を付けない |
+> | `BACKEND_API_KEY` | backend の `API_KEY`（共有キー） | `NEXT_PUBLIC_` を付けない（付けるとバンドルへ露出） |
+>
+> 設定コマンド（`vercel` CLI、Production と Preview の双方）:
+>
+> ```bash
+> vercel env add BACKEND_BASE_URL production   # 値: https://news-listen-api-ck5vowuina-an.a.run.app
+> vercel env add BACKEND_API_KEY  production   # 値: backend の API_KEY
+> vercel env add BACKEND_BASE_URL preview
+> vercel env add BACKEND_API_KEY  preview
+> ```
+>
+> 設定後は web 側 Issue のデプロイで疎通する。それまでは §7.5 の SetupModal 入力で稼働する。
 
 ### 7.3 backend CORS: **web に関しては不要**
 
@@ -124,10 +140,12 @@ web → backend 通信は **BFF プロキシ経由のサーバー間 fetch**（V
 
 ### 7.5 利用者が本番で記事を見るための前提
 
-www.news-listen.com を開いた利用者は、SetupModal で以下を入力する必要がある:
+**現状**: www.news-listen.com を開いた利用者は、SetupModal で以下を入力する必要がある:
 - **backend URL**: `https://news-listen-api-ck5vowuina-an.a.run.app`（§4 の Cloud Run、本番 backend として継続利用）
 - **API キー**: backend の `API_KEY`
 - その後ログイン（要 Phase 5 の初期ユーザー投入）。
+
+> **🟠 移行後（[ADR-037](../adr/037-gateway-api-key-client-distribution.md)）**: web 側 Issue のマージ後は SetupModal が廃止され、利用者の URL / API キー入力は不要になる（運用者が §7.2 の Vercel env var を設定済みであることが前提）。利用者はトップを開いて**ログインするだけ**になる。
 
 ### 7.6 残りの go-live ブロッカー（2026-06-27 診断で更新）
 
