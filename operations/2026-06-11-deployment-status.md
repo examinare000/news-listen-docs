@@ -1,8 +1,8 @@
 # デプロイ状況記録
 
 - **対象読者**: 本プロジェクトの運用・開発担当
-- **最終更新日**: 2026-06-11
-- **ステータス**: 本番デプロイは Phase 4 まで完了し、Phase 5 直前で**意図的に中断**。ローカル Docker での PoC 検証を優先するため。
+- **最終更新日**: 2026-06-27
+- **ステータス**: フロントエンド（Vercel）本番デプロイ完了（Phase 6 ✅／§7 参照）。backend は Cloud Run で稼働中（Phase 4 ✅）。残るは Phase 5（初期データ投入）と Phase 7（E2E 確認）。
 
 ## 1. 決定事項（前提）
 
@@ -38,9 +38,9 @@ flowchart LR
 | Phase 2 | 署名 URL を IAM signBlob 方式へ修正（TDD） | ✅ 完了（`feature/signed-url-iam`、storage 含め 93 passed） |
 | Phase 3 | GCP リソース作成（`infra/setup.sh`） | ✅ 完了（冪等。signBlob 権限 / iamcredentials API を新規反映） |
 | Phase 4 | backend デプロイ（`infra/deploy.sh`） | ✅ 完了（下記） |
-| Phase 5 | 初期 RSS 投入 & ジョブ実行 | ⏸ **中断（未実施）** |
-| Phase 6 | Vercel デプロイ | ⏸ 未着手 |
-| Phase 7 | E2E 動作確認（特に署名 URL での再生実証） | ⏸ 未着手 |
+| Phase 5 | 初期 RSS 投入 & ジョブ実行 | ✅ **完了**（2026-06-27、§8 参照。ユーザー既存・記事90件・実スコア反映） |
+| Phase 6 | Vercel デプロイ | ✅ **完了**（2026-06-27、§7 参照） |
+| Phase 7 | E2E 動作確認 | 🟡 **大半完了**（ログイン/Feed/推薦は実証。podcast 再生のみ未達＝§8.4 の音声バグ） |
 
 ## 4. Phase 4 デプロイ結果（稼働中の本番リソース）
 
@@ -88,3 +88,92 @@ flowchart LR
 - **Gemini ブロッカーはマージ阻害要因ではない**: §5 の `GEMINI_API_KEY` 無効によりレコメンド実スコアリングと Podcast/TTS は未実証だが、これは「PoC インフラの検証」ではなく「中核フローの実証」の宿題。インフラ自体（ビルド・起動・Firestore アクセス・RSS 取得 20 件）は検証済みのため、インフラを main に置くこと自体は妥当と判断する。
   - **残タスク（マージ後に継続）**: 有効な AI Studio キーへ差し替え → `recommendation` / `podcast-generator` を再実行し、Feed → Star → Podcast 生成・再生の中核フローを実証する。
 - **standalone 出力**: `web/next.config.ts` の `output:'standalone'` は全ビルドに影響する横断的設定。本番 Vercel は当該値を無視するため影響はないが、Docker PoC 専用の意図的設定であることを明記する（コード内コメント参照）。
+
+## 7. Phase 6 結果: Vercel フロントエンド本番デプロイ（2026-06-27）
+
+`news-listen-web`（Next.js）を Vercel に本番デプロイした。GitHub 連携による自動デプロイ方式。
+
+### 7.1 稼働中のリソース
+
+| 項目 | 値 |
+|------|-----|
+| 本番ドメイン | `https://www.news-listen.com`（canonical） |
+| apex ドメイン | `https://news-listen.com` → `308` で www へリダイレクト |
+| デプロイ識別 URL | `https://news-listen-h2w3w61is-examinare000s-projects.vercel.app` |
+| デプロイ方式 | GitHub 連携（`news-listen-web` リポジトリへの push で自動ビルド・デプロイ） |
+| 本番ブランチ | `main`（`news-listen-web` の main への push で本番デプロイ） |
+| ビルド | Vercel 既定の Next.js ビルド（`next.config.ts` の `output:'standalone'` は Vercel では無視される） |
+
+### 7.2 環境変数: **設定不要**（重要な設計事実）
+
+本フロントは **サーバーサイド環境変数を一切使用しない**（`web/` 配下に `process.env` 参照ゼロ）。
+backend URL と API キーは **ブラウザの SetupModal で利用者が入力し localStorage に保存**する方式（[ADR-001](../adr/001-web-bff-proxy.md)）。
+したがって **Vercel プロジェクト側で設定すべき環境変数は無い**。
+
+### 7.3 backend CORS: **web に関しては不要**
+
+web → backend 通信は **BFF プロキシ経由のサーバー間 fetch**（Vercel の Next.js サーバー → Cloud Run）であり、ブラウザは backend に直接アクセスしない。
+よって **web の本番化に backend の `CORS_ALLOWED_ORIGINS` 設定は不要**。
+（CORS 許可が要るのは backend を直接叩く iOS 側のみ。[ADR-007](../adr/007-ios-direct-backend-access.md) / [ADR-016](../adr/016-cors-and-security-headers.md)）
+
+### 7.4 疎通確認（2026-06-27）
+
+- `https://news-listen.com` → `308` → `https://www.news-listen.com/` → `200`（トップ `<title>Podcast App</title>`）。
+- BFF プロキシ `GET /api/backend/health`（ヘッダ無し）→ `400 {"detail":"Missing or invalid X-Backend-Base-Url header"}`（SSRF 対策が設計通り稼働）。
+- backend `GET /health` → `200` / 認証なし `GET /feed` → `401`（API キー認証が稼働）。
+
+### 7.5 利用者が本番で記事を見るための前提
+
+www.news-listen.com を開いた利用者は、SetupModal で以下を入力する必要がある:
+- **backend URL**: `https://news-listen-api-ck5vowuina-an.a.run.app`（§4 の Cloud Run、本番 backend として継続利用）
+- **API キー**: backend の `API_KEY`
+- その後ログイン（要 Phase 5 の初期ユーザー投入）。
+
+### 7.6 残りの go-live ブロッカー（2026-06-27 診断で更新）
+
+フロントは稼働中だが、利用者がログインして記事を見るには以下が残る。**優先順位は再デプロイが最上位**である。
+
+- **🔴 最優先・backend 再デプロイ（フロント/バックエンドの版ズレ）**: 稼働中の Cloud Run backend は §4 の Phase 4 デプロイ（`6b96a5c`, 2026-06-11）のままで、**認証導入（[ADR-013](../adr/013-session-auth-and-user-management.md), 2026-06-23）より前の古い版**。実測した本番 OpenAPI のルートは `/feed` `/articles/{id}/star|dismiss` `/podcasts` `/settings/sources` `/health` のみで、**`/auth/login` も users も Passkey も存在しない**。一方 Vercel にデプロイした web は最新（ログイン画面・Passkey 前提）。このため**新フロントからはログインできず（`/auth/login` → 404）、アプリが機能しない**。`infra/deploy.sh` で backend を現行版（submodule HEAD）へ再デプロイすることが他の全作業の前提。再デプロイ時の追加考慮: 認証必須化（破壊的変更）、`SESSION_COOKIE_SECURE=true`（本番 https）、初期ユーザー用シークレット。
+- **Phase 5（再デプロイ後に実施）**: `backend/scripts/seed_users.py` で初期ユーザー投入 → RSS ソース投入 → `rss-fetcher` / `recommendation` / `podcast-generator` ジョブ実行。※認証導入で feed は per-user になったため、seed は再デプロイ後に行う。実測では現行デプロイの `/feed` は空（記事ゼロ）。
+- **✅ Gemini ブロッカーは解消**: §5 の `GEMINI_API_KEY` 無効問題は、`.env` 更新後の鍵で `models.list` が 50 件・エラー無しを確認（2026-06-27）。実生成（`generateContent`）はジョブ実行で最終確認する。
+- **Phase 7**: www.news-listen.com → SetupModal → 最新 backend の E2E（Feed → Star → Podcast 生成・署名 URL 再生）実証。
+
+## 8. go-live ブロッカー解消の実施結果（2026-06-27）
+
+§7.6 の残ブロッカーに着手し、以下を実施・検証した。
+
+### 8.1 backend 再デプロイ（最優先ブロッカー）✅
+
+`infra/deploy.sh` を実行し、稼働中 Cloud Run を現行版（認証/Passkey/admin/search 等を含む）へ置換。
+
+- 新リビジョン: `news-listen-api-00004-8nm`（バグ修正反映後の最終。途中 `00003-f65` を経由）。
+- 文書記載 URL `https://news-listen-api-ck5vowuina-an.a.run.app` で最新 OpenAPI（`/auth/login` `/auth/passkey/*` `/admin/*` `/articles/search` 等）を提供することを確認。
+- **注意**: `infra/deploy.sh` の service env は旧 `USER_ID` 方式のままで、新 env（`CORS_ALLOWED_ORIGINS` 等）は未配線。web は BFF 経由のため CORS 不要で問題なし。`SESSION_COOKIE_SECURE` はコード既定 `true`（本番 https 適合）。iOS 直アクセスを本番化する際は deploy.sh への CORS 配線が別途必要。
+
+### 8.2 Phase 5 データ ✅
+
+- 初期ユーザーは**既存**（`seed_users.py` は冪等で「skip (exists)」）。admin=`examinare000` / test=`nltestuser0`。
+- **ジョブの `USER_ID=default` に一致するのは test ユーザー `nltestuser0`**（その feed に推薦が反映される）。admin は別 user_id のため score=0.5 のまま。
+- `rss-fetcher` 実行 → 記事90件（最新 2026-06-27）。
+
+### 8.3 Gemini ブロッカー ✅（鍵同期 + コードバグ修正）
+
+2つの独立した原因があった:
+1. **Secret Manager の鍵が古い無効値**だった（`.env` の有効鍵と相違）。ジョブは Secret（`news-listen-gemini-key:latest`）を参照するため `API_KEY_INVALID` で失敗。→ `.env` の有効鍵を**新バージョン（version 3）として登録**して解消。
+2. **コードバグ**: google-genai はキャッシュ未使用時 `cached_content_token_count` を `None` で返すが、`shared/gemini_client.py` の安全化が `None` を 0 に畳めず、`recommender.py` の `cached_content_token_count > 0` が `'>' not supported between NoneType and int` で落ちて全件フォールバック(score=0.5)していた。→ backend ブランチ `fix/recommendation-token-count-none` で TDD 修正（`or 0` 畳み込み、回帰テスト追加、全825テスト pass）し再デプロイ。
+
+結果: `recommendation` 再実行で**実スコア（0.05〜1.0 の多様な値）が反映**。Gemini generateContent 稼働を確認。
+
+### 8.4 E2E 検証結果（www.news-listen.com）
+
+- **✅ ログイン/セッション/Feed**: ブラウザ相当の Vercel BFF 経由（`POST /api/backend/auth/login`）で 200・セッション Cookie 往復・`/auth/me` 200・`/feed` 90件取得を実証。**本番フロント→BFF→backend の主経路が機能**。
+- **✅ Star → Podcast 生成**: `nltestuser0` で上位記事を Star（202）→ `podcast-generator` 実行 → podcast 3件が `status=completed`・`audio_url` 付きで生成。
+- **✅ 署名 URL 配信**: 生成された GCS 署名 URL（IAM signBlob）が `HTTP 200 / 19.5MB` を返すことを確認（署名 URL 基盤＝Phase 2 の成果は正常）。
+- **🔴 podcast 音声が再生不可（残バグ）**: 配信オブジェクトの実体が **base64 テキスト**で、デコードすると **生 PCM（Gemini TTS の L16 出力）**。しかも `content-type: audio/mpeg` で配信されている。`shared/storage_client.py:35` が PCM を `audio/mpeg` 固定で保存しており、(a) base64 未デコード疑い、(b) PCM を WAV/MP3 コンテナ化せず、(c) content-type 不整合、の複合。ブラウザ `<audio>` では再生できない。**podcast TTS 出力処理の別系統バグ**であり、独立した TDD + 再デプロイで対応が必要（`duration_seconds` の算出も base64 混入で過大になる可能性あり）。
+
+### 8.5 残タスク
+
+- **🔴 podcast 音声パイプライン修正**（§8.4）: TTS バイト列の base64 デコード／WAV ヘッダ付与／`content_type` 整合。recommendation 同様 TDD → 再デプロイ。
+- **🟡 admin ユーザーの推薦**: ジョブの `USER_ID` が `default` 固定のため admin feed に推薦が出ない。マルチユーザーで全ユーザー分を回す設計に拡張するか、運用上 test ユーザーで確認する整理が必要。
+- **🟡 iOS go-live**: iOS は backend 直アクセス（ADR-007）。本番 backend が認証必須化されたため、iOS 側の認証対応と `deploy.sh` への `CORS_ALLOWED_ORIGINS` 配線が必要。
+- **🟢 Cloud Scheduler 未設定**: ジョブは手動実行のまま。定期実行は `SETUP_SCHEDULER=1 bash infra/deploy.sh` で有効化。
