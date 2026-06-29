@@ -1,9 +1,9 @@
 # PRD: news-listen — 海外テックニュース自動収集・Podcast化アプリ
 
-**バージョン:** 1.5  
+**バージョン:** 1.6  
 **作成日:** 2026-05-31  
-**最終更新:** 2026-06-25  
-**ステータス:** マルチレポ化完了（web, backend, ios, docs を独立リポジトリ化）。バックエンド実装完了・GCP セットアップ / Cloud Run デプロイ完了 / iOS アプリ基盤構築中。**セッションベース認証とマルチユーザー管理（ログイン）を backend / Web / iOS に導入済み（[ADR-013](../adr/013-session-auth-and-user-management.md)）** — 単一ユーザー前提（ADR-007）から更新。
+**最終更新:** 2026-06-29  
+**ステータス:** 全プラットフォーム MVP + フェーズ2 実装済み。残: iOS ネイティブ Push 通知（APNs、[#80](https://github.com/examinare000/news-listen/issues/80)・進行中）。**セッションベース認証・Passkey 対応・おすすめサイト管理（admin）を導入済み**（[ADR-013](../adr/013-session-auth-and-user-management.md) / [ADR-035](../adr/035-passkey-webauthn-adoption.md) / [ADR-038](../adr/038-featured-sites-require-admin.md)）。
 **想定ユーザー数:** 1〜5人（個人・ファミリー利用）
 
 ---
@@ -100,7 +100,7 @@
 | 英語本編 | 記事本文＋関連ニュースを英語で掛け合い（男性話者A・女性話者B）形式で読み上げ | P0 |
 | 難易度選択 | 6段階（下記 [9節](#9-podcast-スクリプト生成仕様) 参照） | P0 |
 | 再生速度調整 | x0.5〜x2.5 の8段階（AVPlayer の rate 機能で実装） | P0 |
-| 生成進捗表示 | 生成中のエピソードはプログレスインジケーターを表示（[ADR-021](../adr/021-podcast-generation-status-visualization.md) で実装済み・status ポーリング），完了時にプッシュ通知（Web Push 実装済み・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は ios#15） | P0 |
+| 生成進捗表示 | 生成中のエピソードはプログレスインジケーターを表示（[ADR-021](../adr/021-podcast-generation-status-visualization.md) で実装済み・status ポーリング），完了時にプッシュ通知（Web Push 実装済み・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は [#80](https://github.com/examinare000/news-listen/issues/80)・進行中） | P0 |
 | 再生位置保存 | アプリを閉じても秒単位で再生位置を記憶（Firestore + ローカルキャッシュ） | P0 |
 | 日次ダイジェスト | その日のおすすめ記事（Star + 高スコア記事）をまとめた1本を毎朝自動生成 | P1 |
 | オフライン再生 | 生成済み音声ファイルをデバイスにキャッシュし、オフラインでも再生可能 | P1 |
@@ -139,6 +139,8 @@ Cloud Tasks キューへタスク投入
 | デフォルト再生速度 | 再生速度のデフォルト値を設定 | P0 |
 | 日次ダイジェスト設定 | ON/OFF、対象記事数（3〜10件） | P1 |
 | ストレージ管理 | キャッシュ済み音声のサイズ確認・一括削除 | P1 |
+| **管理者: おすすめサイト管理** | **admin ロール限定。Featured Sites の CRUD（タイトル・URL・説明・有効化）。Feed に推薦表示**（[ADR-012](../adr/012-featured-sites-and-onboarding.md) / [ADR-038](../adr/038-featured-sites-require-admin.md)） | P0 |
+| **管理者: オンボーディング** | **新規ユーザー登録時に RSS/Passkey 設定ガイダンス。admin が Settings で初期 RSS 投入可** | P0 |
 
 ### 5.4 アカウント・ユーザー管理（ログイン）
 
@@ -153,6 +155,16 @@ Cloud Tasks キューへタスク投入
 | 管理者によるユーザー管理 | admin ロールがユーザーの作成・一覧・ロール変更・PW リセット・削除を実行 | P0 |
 | 自己ロックアウト防止 | 最後の admin の降格・削除を拒否（409）。自分自身の権限変更・削除ボタンは非表示 | P0 |
 | セッション失効 | 降格・PW リセット・削除時に対象ユーザーの全セッションを即時失効 | P0 |
+
+### 5.5 Passkey 認証（WebAuthn/FIDO2）
+
+パスワードレスログイン・登録・管理を実装（[ADR-035](../adr/035-passkey-webauthn-adoption.md)）。backend / web / iOS で対応済み（[backend#48](https://github.com/examinare000/news-listen-backend/pull/48) / [web#25](https://github.com/examinare000/news-listen-web/pull/25) / [ios#23](https://github.com/examinare000/news-listen-ios/pull/23)）。
+
+| 機能 | 詳細 | 優先度 |
+|------|------|--------|
+| Passkey 登録 | ログイン画面・設定画面で新規 Passkey を登録（生体認証・PIN） | P1 |
+| Passkey ログイン | 登録済み Passkey で password 入力なしでログイン | P1 |
+| Passkey 管理 | 設定画面で登録済み Passkey 一覧・個別削除 | P1 |
 
 ---
 
@@ -224,8 +236,10 @@ Cloud Tasks キューへタスク投入
 | POST | `/auth/password` | パスワード変更（現在 PW 検証必須） |
 | GET / POST | `/admin/users` | ユーザー一覧 / 作成（admin 限定） |
 | PATCH / DELETE | `/admin/users/{username}` | ロール変更・PW リセット / 削除（admin 限定） |
+| GET / POST | `/admin/featured-sites` | おすすめサイト一覧 / 作成（admin 限定） |
+| PATCH / DELETE | `/admin/featured-sites/{id}` | 編集 / 削除（admin 限定） |
 
-> 認証は ADR-013 のセッション方式。Web は httpOnly Cookie、iOS は `Authorization: Bearer` でトークンを送る。
+> 認証は ADR-013 のセッション方式。Web は httpOnly Cookie、iOS は `Authorization: Bearer` でトークンを送る。Passkey 対応は [ADR-035](../adr/035-passkey-webauthn-adoption.md) 参照。
 
 ---
 
@@ -398,33 +412,42 @@ Gemini にはセリフ単位の構造化 JSON を出力させ、そのまま TTS
 - Settings タブ：RSS管理・デフォルト設定
 - バックエンド：Cloud Run + Cloud Tasks + Firestore + Cloud Storage
 
-### フェーズ2（P1）
+### フェーズ2（P1）—  **実装済み**
 
-- 日次ダイジェスト（複数記事を1本にまとめて毎朝自動生成）
-- オフライン再生（音声ファイルのデバイスキャッシュと同期）
-- ストレージ管理（キャッシュ容量確認・削除）
-- ~~Firebase Auth によるマルチユーザー管理の本格化~~ → **実装済み**。Firebase Auth ではなく既存スタック内の独自セッション方式を採用（[ADR-013](../adr/013-session-auth-and-user-management.md)・§5.4）。残課題はパスワードリセットのセルフサービス（メール）・ログイン試行のレートリミット・監査ログ
+以下すべて実装・本番運用中:
 
-#### Web フロントエンド残課題（2026-06-12 追記 — WebUI リスタイル完了時の棚卸し）
-
-Web 版（PR #7 で新デザイン適用済み）は実装済み API 契約を正としており（ADR-002）、以下は**バックエンド API の拡張が前提**の機能:
-
-- ~~Podcast 生成ステータス表示・ポーリング~~ **実装済み**（issue #38・[ADR-021](../adr/021-podcast-generation-status-visualization.md)）。`PodcastResponse` に `status` / `error_message` を公開、Web は StatusBadge + 5 秒ポーリングで表示
-- 再生位置のサーバー同期・端末間共有（`PATCH /podcasts/:id/position` 新設が前提。現状は localStorage のみ）
-- デフォルト難易度のユーザー設定（`GET/PUT /settings` 新設 + podcast-generator の難易度参照変更が前提）
-- フィードの未読管理・「未読」タブ（既読管理 API が前提）
-- BFF プロキシの撤去（バックエンドへの CORS 追加が前提。ADR-001）
-
-Web 単独で追加可能なもの:
-
-- 記事の一括スター / 相対日時表記（「3時間前」）/ E2E テスト（Playwright）/ Web Push 通知
-
-技術的負債（ESLint 導入等。テスト型エラー・シークバーフィルは 2026-06-12 解消済み）は `docs/tech/web-frontend-tech-debt.md` を参照。
+- ✅ 日次ダイジェスト（複数記事を1本にまとめて毎朝自動生成）— [#43](https://github.com/examinare000/news-listen/issues/43) / [ADR-024](../adr/024-daily-digest-generation.md)
+- ✅ オフライン再生（音声ファイルのデバイスキャッシュと同期）— [#46](https://github.com/examinare000/news-listen/issues/46) / [ADR-027](../adr/027-ios-offline-audio-cache.md)
+- ✅ ストレージ管理（キャッシュ容量確認・削除）— [#47](https://github.com/examinare000/news-listen/issues/47) / [ADR-025](../adr/025-storage-management-safe-cleanup.md)
+- ✅ セッションベース認証・マルチユーザー管理 — [ADR-013](../adr/013-session-auth-and-user-management.md)
+- ✅ パスワードリセット（セルフサービス・メール）— [#45](https://github.com/examinare000/news-listen/issues/45) / [ADR-026](../adr/026-self-service-password-reset.md)
+- ✅ ログイン試行レートリミット — [#37](https://github.com/examinare000/news-listen/issues/37) / [ADR-014](../adr/014-login-rate-limiting.md) / [ADR-018](../adr/018-generic-api-rate-limiting.md)
+- ✅ 監査ログ — [#42](https://github.com/examinare000/news-listen/issues/42) / [ADR-015](../adr/015-audit-logging.md)
+- ✅ Passkey 認証（WebAuthn/FIDO2） — [#77](https://github.com/examinare000/news-listen/issues/77) / [ADR-035](../adr/035-passkey-webauthn-adoption.md)
+- ✅ 再生位置のサーバー同期・端末間共有 — [ADR-022](../adr/022-server-side-playback-position-and-preferences.md)
+- ✅ デフォルト難易度設定 — [ADR-022](../adr/022-server-side-playback-position-and-preferences.md)
+- ✅ フィード未読管理・「未読」タブ — [#44](https://github.com/examinare000/news-listen/issues/44)
+- ✅ 記事の一括スター / 相対日時表記 — [#50](https://github.com/examinare000/news-listen/issues/50) / [ADR-030](../adr/030-web-relative-time-and-bulk-star.md)
+- ✅ Web E2E テスト（Playwright）/ グローバルエラーバウンダリ — [#48](https://github.com/examinare000/news-listen/issues/48) / [ADR-031](../adr/031-web-e2e-and-error-boundary.md)
+- ✅ Web Push 通知 — [ADR-020](../adr/020-push-notification-web-push.md)
+- ✅ アクセシビリティ強化（VoiceOver/Dynamic Type など） — [#49](https://github.com/examinare000/news-listen/issues/49) / [ADR-034](../adr/034-ios-accessibility-voiceover-dynamic-type.md)
+- ✅ 記事全文検索 — [#51](https://github.com/examinare000/news-listen/issues/51) / [ADR-029](../adr/029-article-full-text-search.md)
+- ✅ おすすめサイト管理（admin）/ オンボーディング — [#105](https://github.com/examinare000/news-listen/issues/105) / [ADR-012](../adr/012-featured-sites-and-onboarding.md) / [ADR-038](../adr/038-featured-sites-require-admin.md)
 
 ### 将来検討（P2）
 
+残 P0: iOS ネイティブ Push 通知（APNs） — [#80](https://github.com/examinare000/news-listen/issues/80)・進行中
+
+その他バックログ（P1/P2）:
+
+- [#81](https://github.com/examinare000/news-listen/issues/81) — 連続再生・再生キュー（プレイリスト）
+- [#82](https://github.com/examinare000/news-listen/issues/82) — コスト監視・予算アラート + ユーザー別生成上限
+- [#83](https://github.com/examinare000/news-listen/issues/83) — エラー可観測性（Error Reporting / クラッシュ収集 + アラート）
+- [#84](https://github.com/examinare000/news-listen/issues/84) — デバイス/セッション管理（一覧・個別失効）
+- [#110](https://github.com/examinare000/news-listen/issues/110) — iOS: デザイン刷新（白基調から脱却）
+- [#111](https://github.com/examinare000/news-listen/issues/111) — iOS: フィード UX 刷新（ジェスチャ・タップ展開・ソース表示）
+- [#112](https://github.com/examinare000/news-listen/issues/112) — iOS: 設定タブに購読中 RSS 一覧セクション
 - Apple Watch 対応
-- 記事全文検索
 - Web クリップ（ブラウザ拡張からの Star）
 
 ---
@@ -448,6 +471,6 @@ Web 単独で追加可能なもの:
 |---|------|-----------------|
 | 1 | スクレイピング合法性 | 各サイトの利用規約・robots.txt の確認。個人利用の範囲内かどうか |
 | 2 | OpenAI TTS の話者バリエーション | alloy / echo / fable / nova / onyx / shimmer のどれを話者A/Bに割り当てるか。音質テストが必要 |
-| 3 | ~~Push 通知実装方式~~（解決済み） | ~~APNs + Firebase Cloud Messaging vs Cloud Run からの直接 APNs 呼び出し~~ → Web Push（VAPID）を採用・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は ios#15 で別実装 |
+| 3 | ~~Push 通知実装方式~~（部分解決） | ~~APNs + Firebase Cloud Messaging vs Cloud Run からの直接 APNs 呼び出し~~ → Web Push（VAPID）を採用・[ADR-020](../adr/020-push-notification-web-push.md)。iOS APNs は [#80](https://github.com/examinare000/news-listen/issues/80)（backend#60/ios#29・進行中） |
 | 4 | ~~ユーザー識別子~~（解決済み） | ログインユーザーの `userId`（`users` コレクション・ADR-013）で識別する方式に確定。端末ローカル UUID / Firebase Auth 案は廃止 |
 | 5 | 関連ニュース品質 | タイトル類似度での関連記事紐付けが実用的に機能するか。本文 Embedding が必要かは実装後に評価 |
