@@ -48,8 +48,8 @@ flowchart LR
 - **API URL**: `https://news-listen-api-ck5vowuina-an.a.run.app`
 - **疎通**: `GET /health` → 200 / 認証なし `GET /feed` → 401（X-API-Key 認証が機能）
 - **Cloud Run サービス**: `news-listen-api`（min=0 / max=3、`--allow-unauthenticated` + アプリ層 API キー認証）
-- **Cloud Run Jobs**: `rss-fetcher` / `recommendation` / `podcast-generator`（デプロイ済み・未実行）
-- **Cloud Scheduler**: 未設定（`SETUP_SCHEDULER=1 bash infra/deploy.sh` で有効化可能）
+- **Cloud Run Jobs**: `rss-fetcher` / `recommendation` / `podcast-generator` / `digest-generator`（デプロイ済み）
+- **Cloud Scheduler**: **有効化済み**（2026-06-29）。毎日 JST 06:00 rss-fetcher → 06:30 recommendation → 07:00 podcast-generator → 07:30 digest-generator を順次起動（`trigger-*` ジョブ・OAuth SA）。手動実行（`gcloud run jobs execute`）も併用可
 
 > 注: API は稼働中だが Firestore にデータが無いため、現状 Feed は空。Phase 5 を実施するまで実データは流れない。
 
@@ -194,7 +194,7 @@ web → backend 通信は **BFF プロキシ経由のサーバー間 fetch**（V
 - **🔴 podcast 音声パイプライン修正**（§8.4）: TTS バイト列の base64 デコード／WAV ヘッダ付与／`content_type` 整合。recommendation 同様 TDD → 再デプロイ。
 - **🟡 admin ユーザーの推薦**: ジョブの `USER_ID` が `default` 固定のため admin feed に推薦が出ない。マルチユーザーで全ユーザー分を回す設計に拡張するか、運用上 test ユーザーで確認する整理が必要。
 - **🟡 iOS go-live**: iOS は backend 直アクセス（ADR-007）。本番 backend が認証必須化されたため、iOS 側の認証対応と `deploy.sh` への `CORS_ALLOWED_ORIGINS` 配線が必要。
-- **🟢 Cloud Scheduler 未設定**: ジョブは手動実行のまま。定期実行は `SETUP_SCHEDULER=1 bash infra/deploy.sh` で有効化。
+- **✅ Cloud Scheduler 有効化済み**（2026-06-29 / #90）: 毎日 JST 06:00 rss-fetcher → 06:30 recommendation → 07:00 podcast-generator → 07:30 digest-generator を順次起動。スモークテスト（trigger-rss-fetcher 手動発火）で Scheduler→Job 配線を実証済み。手動実行（`gcloud run jobs execute`）も併用可。
 
 ## 9. 版ズレ再発防止: backend 自動デプロイ（2026-06-27 導入）
 

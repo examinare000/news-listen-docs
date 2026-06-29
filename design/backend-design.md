@@ -857,7 +857,7 @@ username + password を検証し、セッショントークンを発行する。
 
 ジョブは **Cloud Run Jobs** として実行する（Cloud Tasks は使用しない）。起動経路は 2 系統:
 
-- **定時バッチ**: Cloud Scheduler から rss-fetcher / recommendation を起動。
+- **定時バッチ**: Cloud Scheduler から毎日 JST に順次起動（`trigger-*` ジョブ、OAuth SA 認証で Cloud Run Jobs の `:run` を POST）。06:00 rss-fetcher → 06:30 recommendation → 07:00 podcast-generator → 07:30 digest-generator。`SETUP_SCHEDULER=1 bash infra/deploy.sh` で有効化（冪等）。順序は固定時刻オフセットで、各ジョブが 30 分以内に完了する前提。
 - **アクション起点**: Star/Dismiss を契機に `JobTrigger` が起動（`jobLocks` でデバウンス）。`JOB_TRIGGER_BACKEND` で `cloud_run` / `local_process` / `disabled` を切替。
 
 ### 主な環境変数
