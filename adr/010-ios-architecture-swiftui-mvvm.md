@@ -4,7 +4,7 @@
 **決定日:** 2026-06-14
 **最終更新日:** 2026-06-16
 **対象読者:** iOS 開発者
-**関連:** [iOS設計書 §1・§5（MVVM）](../design/ios-design.html)
+**関連:** [iOS設計書 §1・§5（MVVM）](../design/ios-design.md)
 
 ## 背景
 

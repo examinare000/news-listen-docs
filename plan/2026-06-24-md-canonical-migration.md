@@ -5,7 +5,7 @@
 - **方針**: HTML をやめず、**手書き正本から生成物へ降格**する。Markdown を単一正本とし、人間向け HTML は SSG で生成する。
 - **スコープ外**: `app-ui.html`（視覚デザイン正本）は据え置く。
 - **採用範囲**: Phase 1 + Phase 2（ユーザー承認 2026-06-24）。
-- **進捗（2026-06-24）**: Phase 1 完了（AGENTS.md・docs 索引）。Phase 2 中核完了（backend/web を Markdown 正本化・Mermaid 化、agent-rules/30 反転、MkDocs 設定、参照張替、旧 HTML 削除）。**未了**: `mkdocs build` のローカル検証（mkdocs 未導入）、index.html / ios-design.html の Markdown 化（Phase 2b）、CI 公開（Phase 3）。
+- **進捗（2026-06-24）**: Phase 1 完了（AGENTS.md・docs 索引）。Phase 2 中核完了（backend/web を Markdown 正本化・Mermaid 化、agent-rules/30 反転、MkDocs 設定、参照張替、旧 HTML 削除）。**Phase 2b 完了**: index.md / ios-design.md へ Markdown 正本化・旧 HTML 削除・参照張替え済み。残る未了（mkdocs ローカル検証・CI 公開 Phase 3）。
 
 ## ライフサイクル注記
 本書は作業領域。完了後は削除し、確定方針は `agent-rules/30` と各 `docs/design/*.md` へ移す。

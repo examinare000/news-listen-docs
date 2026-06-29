@@ -9,7 +9,7 @@
 
 ## 背景
 
-先行設計案（`docs/design/ios-design.html`）は再生位置を `PATCH /podcasts/:id/position`、既定難易度・速度を `PUT /settings` でサーバー保存する想定だったが、**これらのエンドポイントはバックエンドに存在しない**。現行 Web は再生位置・既定速度・テーマ・API 設定をすべてブラウザ `localStorage` に保存しており、サーバーには永続化していない。`UserPrefs`（Firestore）に `default_difficulty` 等のフィールドは存在するが、これを読み書きする API は公開されていない。
+先行設計案（`docs/design/ios-design.md`）は再生位置を `PATCH /podcasts/:id/position`、既定難易度・速度を `PUT /settings` でサーバー保存する想定だったが、**これらのエンドポイントはバックエンドに存在しない**。現行 Web は再生位置・既定速度・テーマ・API 設定をすべてブラウザ `localStorage` に保存しており、サーバーには永続化していない。`UserPrefs`（Firestore）に `default_difficulty` 等のフィールドは存在するが、これを読み書きする API は公開されていない。
 
 ## 検討した選択肢
 

@@ -43,3 +43,12 @@ api の `POST /articles/{id}/star` / `/dismiss` ハンドラから、FastAPI `Ba
 - api サービスに `JOB_TRIGGER_BACKEND=cloud_run` / `GCP_REGION` / `GCP_PROJECT_ID` を設定する（`infra/deploy.sh`）。
 - `docker compose run` / `gcloud run jobs execute` による手動・定時起動は従来どおり併用可能。
 - debounce ウィンドウ内に発生したスターは、進行中ジョブが拾えなければ次回起動まで反映が遅れる。Podcast 生成は冪等（既存はスキップ）のため実害は小さい。
+
+## 追記（2026-06-29）
+
+backend#56（commit `22cbdbf`）で Cloud Run Jobs API が **v1 `jobs:run` から v2 `RunJob`** へ移行し、実行ごとの `USER_ID` 伝播方式が変更された。
+
+- **v1（本 ADR 決定時点）**: `POST https://{region}-run.googleapis.com/.../jobs/{name}:run` に `env` ペイロード
+- **v2（backend#56 現状）**: `POST https://{region}-run.googleapis.com/.../jobs/{name}:runJob` で `overrides.containerOverrides[].env` を指定
+
+本文の「API 呼び出し」記述は v1 を前提としているが、**backend の実装は既に v2 で更新済み**（`shared/job_trigger.py` が環境に応じ `RunJob` リクエストを組み立てる）。ローカル `docker compose` では親環境の `USER_ID` を継承し、上書きで per-user 値を伝播させる点は不変。

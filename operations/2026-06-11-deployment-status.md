@@ -9,7 +9,7 @@
 | 項目 | 決定 | 補足 |
 |------|------|------|
 | バックエンド | GCP（Cloud Run サービス + Cloud Run Jobs） | `infra/setup.sh` / `infra/deploy.sh` |
-| フロントエンド | Vercel（予定） | デプロイスクリプト未整備。Phase 6 で対応 |
+| フロントエンド | Vercel（本番稼働中） | Phase 6 完了（GitHub 連携自動デプロイ） |
 | backend ローカル実行 | uv に統一 | `README.md` 更新済み（`agent-rules/11` に準拠） |
 | GCP プロジェクト | `news-listen-20260610` / `asia-northeast1` | 課金有効・`.env` 記入済み |
 
@@ -106,25 +106,14 @@ flowchart LR
 
 ### 7.2 環境変数
 
-**現状（デプロイ時点）**: 本フロントは backend URL と API キーを **ブラウザの SetupModal で利用者が入力し localStorage に保存**する方式（[ADR-001](../adr/001-web-bff-proxy.md)）で稼働しており、Vercel 側で設定すべき環境変数は無い。
+**現状（移行完了・2026-06-29）**: 本フロントは backend URL と API キーを **Vercel の非公開 env var（`BACKEND_BASE_URL` / `BACKEND_API_KEY`）で BFF サーバーが注入**する方式（[ADR-037](../adr/037-gateway-api-key-client-distribution.md)、web#33 マージ済み）に移行した。
 
-> **🟠 移行中（[ADR-037](../adr/037-gateway-api-key-client-distribution.md)）**: 共有ゲートキー（`X-API-Key`）はエンドユーザーが入力するものではないため、**ユーザー入力を廃止し BFF がサーバー専用 env を注入する方式へ移行**する。完了後（web 側 Issue のランタイム切替マージ後）は、Vercel に以下の**非公開** env var を Production / Preview で設定する:
->
-> | 変数 | 値 | 注意 |
-> |------|-----|------|
-> | `BACKEND_BASE_URL` | 本番 backend URL（§4 の Cloud Run） | `NEXT_PUBLIC_` を付けない |
-> | `BACKEND_API_KEY` | backend の `API_KEY`（共有キー） | `NEXT_PUBLIC_` を付けない（付けるとバンドルへ露出） |
->
-> 設定コマンド（`vercel` CLI、Production と Preview の双方）:
->
-> ```bash
-> vercel env add BACKEND_BASE_URL production   # 値: https://news-listen-api-ck5vowuina-an.a.run.app
-> vercel env add BACKEND_API_KEY  production   # 値: backend の API_KEY
-> vercel env add BACKEND_BASE_URL preview
-> vercel env add BACKEND_API_KEY  preview
-> ```
->
-> 設定後は web 側 Issue のデプロイで疎通する。それまでは §7.5 の SetupModal 入力で稼働する。
+利用者の SetupModal 入力（旧 ADR-001）は廃止。設定済み env var:
+
+| 変数 | 値 | 環境 |
+|------|-----|------|
+| `BACKEND_BASE_URL` | `https://news-listen-api-ck5vowuina-an.a.run.app` | Production / Preview |
+| `BACKEND_API_KEY` | backend の `API_KEY` | Production / Preview |
 
 ### 7.3 backend CORS: **web に関しては不要**
 
@@ -140,12 +129,7 @@ web → backend 通信は **BFF プロキシ経由のサーバー間 fetch**（V
 
 ### 7.5 利用者が本番で記事を見るための前提
 
-**現状**: www.news-listen.com を開いた利用者は、SetupModal で以下を入力する必要がある:
-- **backend URL**: `https://news-listen-api-ck5vowuina-an.a.run.app`（§4 の Cloud Run、本番 backend として継続利用）
-- **API キー**: backend の `API_KEY`
-- その後ログイン（要 Phase 5 の初期ユーザー投入）。
-
-> **🟠 移行後（[ADR-037](../adr/037-gateway-api-key-client-distribution.md)）**: web 側 Issue のマージ後は SetupModal が廃止され、利用者の URL / API キー入力は不要になる（運用者が §7.2 の Vercel env var を設定済みであることが前提）。利用者はトップを開いて**ログインするだけ**になる。
+**現状（ADR-037 移行済み）**: www.news-listen.com を開いた利用者は **SetupModal 入力なしで直接ログイン画面に遷移**。backend URL / API キー は Vercel 側の env で一元管理。利用者はトップを開いて**ログインするだけ**。
 
 ### 7.6 残りの go-live ブロッカー（2026-06-27 診断で更新）
 
@@ -187,14 +171,14 @@ web → backend 通信は **BFF プロキシ経由のサーバー間 fetch**（V
 - **✅ ログイン/セッション/Feed**: ブラウザ相当の Vercel BFF 経由（`POST /api/backend/auth/login`）で 200・セッション Cookie 往復・`/auth/me` 200・`/feed` 90件取得を実証。**本番フロント→BFF→backend の主経路が機能**。
 - **✅ Star → Podcast 生成**: `nltestuser0` で上位記事を Star（202）→ `podcast-generator` 実行 → podcast 3件が `status=completed`・`audio_url` 付きで生成。
 - **✅ 署名 URL 配信**: 生成された GCS 署名 URL（IAM signBlob）が `HTTP 200 / 19.5MB` を返すことを確認（署名 URL 基盤＝Phase 2 の成果は正常）。
-- **🔴 podcast 音声が再生不可（残バグ）**: 配信オブジェクトの実体が **base64 テキスト**で、デコードすると **生 PCM（Gemini TTS の L16 出力）**。しかも `content-type: audio/mpeg` で配信されている。`shared/storage_client.py:35` が PCM を `audio/mpeg` 固定で保存しており、(a) base64 未デコード疑い、(b) PCM を WAV/MP3 コンテナ化せず、(c) content-type 不整合、の複合。ブラウザ `<audio>` では再生できない。**podcast TTS 出力処理の別系統バグ**であり、独立した TDD + 再デプロイで対応が必要（`duration_seconds` の算出も base64 混入で過大になる可能性あり）。
+- **✅ podcast 音声再生**: TTS 生 PCM → WAV コンテナ化 / `audio/wav` 配信に修正（[#55](https://github.com/examinare000/news-listen/issues/55)・backend ブランチ `fix/podcast-audio-wav-container`・`shared/storage_client.py` / `shared/audio.py` 対応）。再デプロイ済み。ブラウザ `<audio>` で再生可能。
 
 ### 8.5 残タスク
 
-- **🔴 podcast 音声パイプライン修正**（§8.4）: TTS バイト列の base64 デコード／WAV ヘッダ付与／`content_type` 整合。recommendation 同様 TDD → 再デプロイ。
-- **🟡 admin ユーザーの推薦**: ジョブの `USER_ID` が `default` 固定のため admin feed に推薦が出ない。マルチユーザーで全ユーザー分を回す設計に拡張するか、運用上 test ユーザーで確認する整理が必要。
-- **🟡 iOS go-live**: iOS は backend 直アクセス（ADR-007）。本番 backend が認証必須化されたため、iOS 側の認証対応と `deploy.sh` への `CORS_ALLOWED_ORIGINS` 配線が必要。
-- **✅ Cloud Scheduler 有効化済み**（2026-06-29 / #90）: 毎日 JST 06:00 rss-fetcher → 06:30 recommendation → 07:00 podcast-generator → 07:30 digest-generator を順次起動。スモークテスト（trigger-rss-fetcher 手動発火）で Scheduler→Job 配線を実証済み。手動実行（`gcloud run jobs execute`）も併用可。
+- **✅ podcast 音声パイプライン修正**（§8.4）：[#55](https://github.com/examinare000/news-listen/issues/55) で TTS 生 PCM → WAV コンテナ化・`audio/wav` 配信に対応。
+- **🟡 admin ユーザーの推薦**: ジョブの `USER_ID` が `default` 固定だったため admin feed に推薦が出ない。[#56](https://github.com/examinare000/news-listen/issues/56) で per-run USER_ID 伝播に修正。運用上は test ユーザー（`nltestuser0`）で実績確認。
+- **🟡 iOS go-live**: iOS は backend 直アクセス（ADR-007）で Passkey 対応・Secrets.xcconfig 設定完了。残: `deploy.sh` への `CORS_ALLOWED_ORIGINS` 配線（[#89](https://github.com/examinare000/news-listen/issues/89) 関連）。
+- **✅ Cloud Scheduler 有効化済み**（2026-06-29 / [#90](https://github.com/examinare000/news-listen/issues/90)）: 毎日 JST 06:00 rss-fetcher → 06:30 recommendation → 07:00 podcast-generator → 07:30 digest-generator を順次起動。スモークテスト（trigger-rss-fetcher 手動発火）で Scheduler→Job 配線を実証済み。手動実行（`gcloud run jobs execute`）も併用可。
 
 ## 9. 版ズレ再発防止: backend 自動デプロイ（2026-06-27 導入）
 
