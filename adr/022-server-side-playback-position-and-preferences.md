@@ -56,3 +56,13 @@
 - データモデル: `Podcast.playback_position_seconds`（廃止予定を撤回し正式採用）・`userPrefs.default_difficulty` ほかが API 経由で読み書きされる。
 - Web は `lib/api.ts` の `updatePosition` / `getPreferences` / `updatePreferences` で BFF 経由同期する。
 - iOS は再生位置・既定設定をサーバー値へ移行する余地が生まれる（ローカル保存からの移行スコープは別途）。
+
+## 追記（2026-06-29）
+
+本 ADR で「iOS はローカル保存からサーバー値への移行スコープは別途」とした留保について、**ios#27（commit `c50287a`、マージ済み）で実現**した。
+
+- iOS アプリが `PATCH /podcasts/{id}/position` へ再生位置を定期同期（15 秒間隔）
+- 既定難易度・再生速度をサーバー（`/settings/preferences`）から取得・反映
+- ローカル UserDefaults からサーバー管理への移行が実装済み
+
+iOS バックグラウンド再生（[ADR-039](039-ios-background-playback-now-playing.md)）でも同期タイマーが実装され、画面ロック中・別アプリ切り替え時も定期的にサーバーへ位置を通知する。
