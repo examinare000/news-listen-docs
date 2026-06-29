@@ -21,7 +21,7 @@
 | 区分 | 場所 | 内容 | いつ読むか |
 |---|---|---|---|
 | ADR | [adr/](adr/) | アーキテクチャ決定レコード（追記型） | 「なぜこの設計か」を知る・新決定を記録するとき |
-| ADR（最新） | [adr/036-ci-cd-backend-auto-deploy.md](adr/036-ci-cd-backend-auto-deploy.md) | backend submodule ポインタ更新時の本番自動デプロイ（CI/CD） | 版ズレ防止・自動デプロイ・WIF を理解するとき |
+| ADR（最新） | [adr/038-featured-sites-require-admin.md](adr/038-featured-sites-require-admin.md) | おすすめサイト管理 API を require_admin（role ベース）で保護 | admin 認可ポリシー・featured-sites の保護を理解するとき |
 | PRD | [prd/](prd/) | 要件定義・Phase 2 候補 | 要件・スコープを確認するとき |
 | 計画 | [plan/](plan/) | 実装計画・タスク指示（作業領域・完了後削除） | 進行中タスクの計画を見るとき |
 | 運用 | [operations/](operations/) | デプロイ状況・ローカル開発手順 | デプロイ・運用の現状を知るとき |

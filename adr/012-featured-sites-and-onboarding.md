@@ -59,3 +59,5 @@ RSS ソースは「名前 + URL を直接入力」してのみ購読でき、新
 - 初回ステップ UI は Web=`app/page.tsx` のリダイレクト前モーダル、iOS=`ContentView` 上の `fullScreenCover`（起動をブロックしない）で提示する。URL 直接入力の購読導線は従来どおり残す。
 - 初期データは `backend/scripts/seed_featured_sites.py` で投入（DB 管理の正は管理 API）。
 - 管理 API を別権限にする必要が生じた場合は `ADMIN_API_KEY` 分離を新 ADR で上書きする。
+
+> **更新（2026-06-29・[ADR-038](038-featured-sites-require-admin.md)）:** 上記 (C) の「`X-API-Key` のまま据え置き」は撤回。`/admin/featured-sites` は `require_admin`（role ベース）で保護する方針へ移行した（`ADMIN_API_KEY` 分離ではなく [ADR-013](013-session-auth-and-user-management.md) の role 基盤を再利用）。
