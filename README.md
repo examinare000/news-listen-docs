@@ -12,9 +12,9 @@
 |---|---|---|---|
 | [backend-design.md](design/backend-design.md) | API 契約・データモデル・ジョブ・認証・キャッシュ・SSRF/レートリミット | バックエンドの仕様・挙動を知るとき | **Markdown（正本）** |
 | [web-design.md](design/web-design.md) | API 契約・状態管理・画面/再生設計・受け入れ基準 | Web フロントの仕様を知るとき | **Markdown（正本）** |
-| [index.html](design/index.html) | システム全体概要・技術スタック・コスト | 全体像をつかむとき | HTML（Phase 2b で Markdown 化予定） |
+| [index.md](design/index.md) | システム全体概要・技術スタック・コスト | 全体像をつかむとき | **Markdown（正本）** |
 | [app-ui.html](design/app-ui.html) | Web UI の**視覚デザイン正本**（配色・フォント・レイアウト） | UI の見た目・トークンを知るとき | HTML（据え置き） |
-| [ios-design.html](design/ios-design.html) | iOS アプリ設計（SwiftUI/MVVM） | iOS の設計を知るとき | HTML（Phase 2b で Markdown 化予定） |
+| [ios-design.md](design/ios-design.md) | iOS アプリ設計（SwiftUI/MVVM） | iOS の設計を知るとき | **Markdown（正本）** |
 
 ## 意思決定・要件・計画・運用（Markdown）
 
