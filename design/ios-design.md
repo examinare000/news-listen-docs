@@ -33,6 +33,7 @@ SwiftUI ネイティブ iOS アプリケーション設計。バックエンド 
 | 項目 | 選定技術 | 理由 |
 |---|---|---|
 | UI フレームワーク | SwiftUI (iOS 17+) | 宣言的 UI・モダン API・拡張性 |
+| ビジュアルデザイン | Editorial デザインシステム（[ios-design-system.md](ios-design-system.md)・[ADR-040](../adr/040-ios-editorial-design-system.md)） | 汎用 UI を脱却。色/書体/余白をトークン化し全画面へ一貫適用・ライト/ダーク対応 |
 | アーキテクチャ | MVVM（`ObservableObject` + `@MainActor`） | SwiftUI との相性・テストしやすい ViewModel 分離 |
 | 非同期処理 | Swift Concurrency (async/await) | コールバック地獄なし・型安全 |
 | ネットワーク | URLSession (async/await)・`URLSessionProtocol` 注入 | 標準ライブラリで完結・テスト容易 |
@@ -374,6 +375,13 @@ ios/NewsListenApp/NewsListenApp/
 ├── ContentView                          (NewsListenAppApp 内に定義) 3 タブ TabView（Feed/Podcast/Settings）
 ├── AppState.swift                       ObservableObject・@MainActor のグローバル共有状態
 │
+├── DesignSystem/                        Editorial デザインシステム（→ design/ios-design-system.md）
+│   ├── DSColor.swift                   カラートークン（paper/ink/accent/hairline・状態色・適応色）
+│   ├── DSFont.swift                    タイポグラフィトークン（serif 見出し + SF 本文・dsEyebrow）
+│   ├── DSLayout.swift                  余白・角丸トークン・dsCard()/dsScreenBackground()
+│   ├── DSAppearance.swift              UIKit グローバル外観（ナビ見出しのセリフ化）
+│   └── Components/                     DSBadge・RelevanceBar 等の共通コンポーネント
+│
 ├── Models/
 │   ├── Article.swift                   記事モデル（Codable）
 │   ├── Podcast.swift                   Podcast モデル（Codable・재생위置・状態）
@@ -453,6 +461,7 @@ ios/NewsListenApp/NewsListenApp/
 - [ADR-022](../adr/022-server-side-playback-position-and-preferences.md)： 再生位置・設定のサーバー同期
 - [ADR-035](../adr/035-passkey-webauthn-adoption.md)： Passkey（WebAuthn）認証
 - [ADR-037](../adr/037-gateway-api-key-client-distribution.md)： ビルド時 API 設定注入
+- [ADR-040](../adr/040-ios-editorial-design-system.md)： Editorial デザインシステムの採用（→ [ios-design-system.md](ios-design-system.md)）
 
 ### Phase 1 完了（HEAD 1eca47e）
 

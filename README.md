@@ -15,13 +15,14 @@
 | [index.md](design/index.md) | システム全体概要・技術スタック・コスト | 全体像をつかむとき | **Markdown（正本）** |
 | [app-ui.html](design/app-ui.html) | Web UI の**視覚デザイン正本**（配色・フォント・レイアウト） | UI の見た目・トークンを知るとき | HTML（据え置き） |
 | [ios-design.md](design/ios-design.md) | iOS アプリ設計（SwiftUI/MVVM） | iOS の設計を知るとき | **Markdown（正本）** |
+| [ios-design-system.md](design/ios-design-system.md) | iOS の**視覚デザイン正本**（Editorial・色/書体/余白トークン・ライト/ダーク） | iOS の見た目・トークンを知るとき | **Markdown（正本）** |
 
 ## 意思決定・要件・計画・運用（Markdown）
 
 | 区分 | 場所 | 内容 | いつ読むか |
 |---|---|---|---|
 | ADR | [adr/](adr/) | アーキテクチャ決定レコード（追記型） | 「なぜこの設計か」を知る・新決定を記録するとき |
-| ADR（最新） | [adr/038-featured-sites-require-admin.md](adr/038-featured-sites-require-admin.md) | おすすめサイト管理 API を require_admin（role ベース）で保護 | admin 認可ポリシー・featured-sites の保護を理解するとき |
+| ADR（最新） | [adr/040-ios-editorial-design-system.md](adr/040-ios-editorial-design-system.md) | iOS に Editorial デザインシステムを採用（色/書体/余白トークン化） | iOS の視覚デザイン方針・採用理由を知るとき |
 | PRD | [prd/](prd/) | 要件定義・Phase 2 候補 | 要件・スコープを確認するとき |
 | 計画 | [plan/](plan/) | 実装計画・タスク指示（作業領域・完了後削除） | 進行中タスクの計画を見るとき |
 | 運用 | [operations/](operations/) | デプロイ状況・ローカル開発手順 | デプロイ・運用の現状を知るとき |

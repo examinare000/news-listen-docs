@@ -174,6 +174,7 @@ graph LR
 | Web 音声再生 | HTML5 Audio API | 追加ライブラリ不要・速度制御・シーク標準対応 |
 | Web ホスティング | Vercel | GitHub 連携・自動デプロイ・www.news-listen.com 本番稼働中 |
 | iOS アプリ | SwiftUI + iOS 17+ | モダン宣言的 UI・AVFoundation で音声再生 |
+| iOS デザイン | Editorial デザインシステム ([ADR-040](../adr/040-ios-editorial-design-system.md)) | 色/書体/余白をトークン化・ライト/ダーク対応。視覚正本 [ios-design-system.md](ios-design-system.md) |
 | iOS 音声再生 | AVFoundation (AVPlayer) | 速度制御・再生位置保存・バックグラウンド再生 |
 
 ### バックエンド・インフラ
