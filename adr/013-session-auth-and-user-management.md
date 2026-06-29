@@ -46,7 +46,7 @@
 
 - **(A) 自前セッション認証を採用**する。Firebase Auth は見送り、`shared/security.py`（bcrypt によるパスワードハッシュ、`secrets` による不透明トークン生成）+ Firestore の `users/{username}` / `sessions/{session_id}` で構成する。PRD のフェーズ2項目「Firebase Auth によるマルチユーザー管理」は **本 ADR の独自方式で実装済み**に置き換える。
 - **(B) サーバ側 Session + デュアルトランスポート**。生トークンは **SHA-256 ハッシュ化して Session に保存**し、照合は毎回ハッシュ比較。受け渡しは **Web=httpOnly Cookie `nl_session`**（BFF が中継）、**iOS=`Authorization: Bearer`**（Keychain 保管）の二系統を、バックエンドの認証依存が「Bearer ヘッダ → Cookie」の順で吸収する。TTL は `SESSION_TTL_HOURS`（既定 168h=7日）。
-- **(C) `role`（`admin` / `user`）で権限分離**。ユーザー CRUD（`/admin/users`）は `require_admin` で保護する。一方、おすすめサイト管理（`/admin/featured-sites`、ADR-012）は当面 `X-API-Key` のまま据え置く（運用者専用の位置づけは不変）。
+- **(C) `role`（`admin` / `user`）で権限分離**。ユーザー CRUD（`/admin/users`）は `require_admin` で保護する。一方、おすすめサイト管理（`/admin/featured-sites`、ADR-012）は当面 `X-API-Key` のまま据え置く（運用者専用の位置づけは不変）。〔更新（2026-06-29）: この据え置きは [ADR-038](038-featured-sites-require-admin.md) で撤回され、`/admin/featured-sites` も `require_admin` で保護〕
 - **自己ロックアウト・運用事故の防止**として、(1) 最後の admin の降格・削除は `HTTP 409` で拒否、(2) **降格・パスワードリセット・削除の各操作で対象ユーザーの全セッションを失効**（旧権限・旧資格情報での継続アクセスを即時遮断）、(3) Web/iOS の管理画面は**自分自身**のロール変更・削除ボタンを非表示にする。
 - ログイン失敗は **ユーザー存在の有無を伏せた汎用メッセージ**（`401`）で返す。
 
