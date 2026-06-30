@@ -189,6 +189,17 @@ sequenceDiagram
 
 > ジョブ起動に失敗してもアクション自体は成功扱い（記録は完了）。起動失敗はログのみ。
 
+### コスト監視・ユーザー別日次生成上限（[ADR-042](../adr/042-cost-monitoring-and-daily-generation-limit.md)）
+
+PRD §6/§10 のコスト SLO（月次 5USD 以下）を二層で守る。
+
+| 層 | 仕組み | 担保 |
+|----|--------|------|
+| ハード（最終防衛線） | Cloud Billing Budget + 閾値アラート（`infra/setup.sh`・`GCP_BILLING_ACCOUNT_ID` で opt-in・既定 5USD/月） | GCP 請求額そのものを監視し 50/90/100% で通知 |
+| ソフト（best-effort） | ユーザー別日次生成上限。star エンドポイントで新規 per-user 予約時に `consume_daily_generation` を消費。超過は予約をリリースし **429 + Retry-After（翌 UTC 0 時）+ 理由**を同期返却し star も記録しない | `PODCAST_DAILY_LIMIT_PER_USER`（既定 20・0 で無効）。`dailyGenerationCounts/{user_id}_{day}` で日次バケット計数（暗黙リセット）。上限到達は監査 `generation_limit_reached` |
+
+> ソフト層は star 時点判定のため非厳密（cross-user キャッシュヒットも計数／failed 再 star は非計数／同時 star 境界で最大 1 回超過しうる）。厳密なコスト上限はハード層（Billing Budget）で担保する。詳細は ADR-042。
+
 ---
 
 ## 5. Podcast 生成キャッシュ（[ADR-006](../adr/006-cross-user-podcast-cache.md)）
