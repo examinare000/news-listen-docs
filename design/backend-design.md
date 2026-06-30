@@ -165,7 +165,7 @@ sequenceDiagram
 |--------|-----------|
 | rss-fetcher-job<br>（jobs/rss_fetcher） | ユーザーの RSS ソースを `feedparser` で取得し新規記事を保存。記事 URL の SHA-256（先頭 20 文字）を doc-id とし、`article_exists` で重複排除。`content` が 200 文字未満なら `trafilatura`（ContentExtractor）で本文補完。外部取得は SSRF 対策の `safe_fetch` 経由（[§7](#7-セキュリティssrfレートリミット)）。 |
 | recommendation-job<br>（jobs/recommendation） | Star（好み）/ Dismiss（非好み）履歴と直近記事を Gemini に渡し 0.0〜1.0 のスコアを付与（`score_articles(candidates, starred, dismissed)`、temperature 0.2）。**安定部分（指示＋履歴）を Gemini Context Caching し可変部分（候補）のみ毎回送信してコスト削減**（[ADR-028](../adr/028-recommendation-context-caching.md)。ADR-005 由来の同日再実行で効く。min-token 未満／失敗時は通常呼び出しへ安全縮退・結果不変）。候補集合外の ID（幻覚）は除外。Gemini 失敗時は全候補に 0.5 のフォールバック。当日の `recommendations/{user_id}_{date}` に保存。 |
-| podcast-generator-job<br>（jobs/podcast_generator） | Star 済み記事から日本語イントロ + 英語本編のスクリプトを生成（難易度別指示）し、TTS で音声（PCM 24kHz/mono/16bit、Kore + Puck）を合成。クロスユーザー共有キャッシュで生成・配布（[§5](#5-podcast-生成キャッシュadr-006)）。 |
+| podcast-generator-job<br>（jobs/podcast_generator） | Star 済み記事から日本語イントロ + 英語本編のスクリプトを生成（難易度別指示）し、TTS で音声（PCM 24kHz/mono/16bit、Kore + Puck）を合成。**冒頭挨拶は「こんにちは。今回取り上げるニュースは……」形式で生成**（番組設定廃止）。Gemini 出力から `===TITLE===` セクションで 1センテンス日本語要約を抽出し `PodcastScript.title` へ記録。抽出失敗時（マーカー欠落/順序違反）はグレースフル縮退し `title=null` で続行。クロスユーザー共有キャッシュで音声を生成・配布（[§5](#5-podcast-生成キャッシュadr-006)）。 |
 | digest-generator-job<br>（jobs/digest_generator） | 毎朝、ユーザーの Star ∩ 当日高スコア記事を上位 `digest_article_count`（3〜10）件選び、1 本のダイジェスト Podcast（`type="digest"`・複数 article_ids）を生成（[ADR-024](../adr/024-daily-digest-generation.md)）。**クロスユーザーキャッシュは使わず**、決定論的 doc-id `{user_id}_{date}_digest` で冪等に `save_podcast` する。`digest_enabled=false` や対象 0 件は生成しない。TTS 部分失敗は `partial_failed`（ADR-023）。Cloud Scheduler で recommendation の後に起動。 |
 
 > **難易度:** `toeic_600 / toeic_900 / ielts_55 / ielts_7 / eiken_2 / eiken_p1` の 6 種。プレーン文字列として扱い、スクリプト生成プロンプトに難易度別の語彙・文構造の指示を埋め込む。
@@ -842,6 +842,7 @@ username + password を検証し、セッショントークンを発行する。
 | type | "single" \| "digest" | 単一記事 / ダイジェスト |
 | article_ids | string[] | 対象記事 ID 一覧 |
 | difficulty | string | 難易度 |
+| title | string \| null | 1センテンス日本語要約（スクリプト生成時に Gemini から `===TITLE===` で抽出・後方互換 null デフォルト・クライアント側フォールバック対応） |
 | audio_url | string | GCS blob パス。API レスポンスでは署名付き URL に変換して返す |
 | japanese_intro_text | string | 日本語イントロ文 |
 | duration_seconds | number | 音声の長さ（秒） |
