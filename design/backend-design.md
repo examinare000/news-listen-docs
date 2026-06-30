@@ -200,6 +200,21 @@ PRD §6/§10 のコスト SLO（月次 5USD 以下）を二層で守る。
 
 > ソフト層は star 時点判定のため非厳密（cross-user キャッシュヒットも計数／failed 再 star は非計数／同時 star 境界で最大 1 回超過しうる）。厳密なコスト上限はハード層（Billing Budget）で担保する。詳細は ADR-042。
 
+### エラー可観測性（[ADR-043](../adr/043-error-observability.md)）
+
+PRD §2/§6 の品質 SLO（クラッシュ率 1% 以下・Star→生成 2 分以内）を測定・検知する土台。
+資格情報・PII はログ/エラーに出さない（`agent-rules/12`）。
+
+| 関心事 | 設計 |
+|--------|------|
+| 構造化ログ | `shared/logging_config.py` の `configure_logging()` が stdout ハンドラを設定。`LOG_FORMAT=json` で Cloud Logging 互換 JSON（severity 解釈）、既定はテキスト。`LOG_LEVEL`（不正値は INFO へフォールバック） |
+| 機密スクラブ | **フォーマッタ段階**でスクラブ（LogRecord 非破壊）。メッセージ本文＋**例外トレース**から `key=value`（複合キー含む）・ヘッダ/クッキー `Key: value`・Bearer・メールを伏せる。一般語の自然文は壊さない |
+| 500 ハンドリング | `api/main.py` のグローバル `Exception` ハンドラが未捕捉 500 を構造化ログに記録し、本文は内部情報を漏らさない定型メッセージのみ返す |
+| 生成所要時間メトリクス | `emit_metric()` が `podcast_generation_duration`（status / duration_ms / article_id）を成功・失敗時に emit。テレメトリは本処理を壊さない（例外安全）。2 分 SLO の信号源 |
+| アラート | `infra/setup.sh`（ADR-043）が生成失敗の log-based metric・メール通知チャネル・アラートポリシーを冪等作成（`GCP_ALERT_EMAIL` で opt-in） |
+
+> web は `app/error.tsx`/`global-error.tsx` の監視フック、iOS は MetricKit クラッシュ収集をフォローアップで実装する。
+
 ---
 
 ## 5. Podcast 生成キャッシュ（[ADR-006](../adr/006-cross-user-podcast-cache.md)）
