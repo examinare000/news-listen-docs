@@ -22,7 +22,7 @@
 | 区分 | 場所 | 内容 | いつ読むか |
 |---|---|---|---|
 | ADR | [adr/](adr/) | アーキテクチャ決定レコード（追記型） | 「なぜこの設計か」を知る・新決定を記録するとき |
-| ADR（最新） | [adr/044-feed-card-gestures.md](adr/044-feed-card-gestures.md) | iOS フィードカードのジェスチャ操作と遅延コミット undo | フィードのスワイプ/タップ操作・取り消しの設計を知るとき |
+| ADR（最新） | [adr/045-continuous-playback-queue.md](adr/045-continuous-playback-queue.md) | 連続再生・再生キュー（プレイリスト・自動次再生）iOS/Web | 連続再生・キュー管理・自動次再生の設計を知るとき |
 | PRD | [prd/](prd/) | 要件定義・Phase 2 候補 | 要件・スコープを確認するとき |
 | 計画 | [plan/](plan/) | 実装計画・タスク指示（作業領域・完了後削除） | 進行中タスクの計画を見るとき |
 | 運用 | [operations/](operations/) | デプロイ状況・ローカル開発手順 | デプロイ・運用の現状を知るとき |
