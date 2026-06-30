@@ -22,7 +22,7 @@
 | 区分 | 場所 | 内容 | いつ読むか |
 |---|---|---|---|
 | ADR | [adr/](adr/) | アーキテクチャ決定レコード（追記型） | 「なぜこの設計か」を知る・新決定を記録するとき |
-| ADR（最新） | [adr/040-ios-editorial-design-system.md](adr/040-ios-editorial-design-system.md) | iOS に Editorial デザインシステムを採用（色/書体/余白トークン化） | iOS の視覚デザイン方針・採用理由を知るとき |
+| ADR（最新） | [adr/041-self-service-session-management.md](adr/041-self-service-session-management.md) | 自分のデバイス／セッション管理（一覧・個別/一括失効・最終利用記録） | 利用者本人のセッション失効機能の設計・採用理由を知るとき |
 | PRD | [prd/](prd/) | 要件定義・Phase 2 候補 | 要件・スコープを確認するとき |
 | 計画 | [plan/](plan/) | 実装計画・タスク指示（作業領域・完了後削除） | 進行中タスクの計画を見るとき |
 | 運用 | [operations/](operations/) | デプロイ状況・ローカル開発手順 | デプロイ・運用の現状を知るとき |

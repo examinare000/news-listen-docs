@@ -250,9 +250,26 @@ sequenceDiagram
 
 | 依存 | 責務 |
 |-----|-----|
-| `get_current_user` | トークン抽出（Bearer→Cookie）→ セッション検証。無効は `401`、`expires_at` 超過は遅延削除のうえ `401`。 |
+| `get_current_user` | トークン抽出（Bearer→Cookie）→ セッション検証。無効は `401`、`expires_at` 超過は遅延削除のうえ `401`。検証成功時に `last_used_at` をスロットル更新（後述・[ADR-041](../adr/041-self-service-session-management.md)）。 |
 | `get_user_id` | ログインセッション由来の `user_id` を返す（旧: 環境変数 `USER_ID` 固定。ADR-007 の単一ユーザー前提を更新）。 |
 | `require_admin` | ロールが `admin` でない場合は `403`。ユーザー管理 API に適用。 |
+
+### 自分のセッション管理（[ADR-041](../adr/041-self-service-session-management.md)）
+
+利用者本人が、ログイン中のデバイス（有効セッション）を一覧し、不審なものや紛失端末の
+セッションを個別／一括で失効できる自衛機能。admin による一括失効（ADR-013）とは別に、
+**本人のみ**が自分のセッションを操作する。
+
+| 観点 | 設計 |
+|-----|------|
+| セッションメタ情報 | `Session` に `device_label`（User-Agent 由来の表示名・「ブラウザ on OS」）・`ip_hash`・`last_used_at` を追加。既存ドキュメント互換のため全て Optional+default。発行時（`issue_session`）に埋める |
+| IP の扱い | 生 IP は保存せず `hash_token(ip)` を `ip_hash` に保持（[ADR-014](../adr/014-login-rate-limiting.md) 踏襲）。IPv4 はエントロピーが低く無塩ハッシュは復元しうるため、強い匿名化ではなく「生値非保存」目的に留め、**クライアントには返さない** |
+| 最終利用時刻 | `get_current_user` が認証成功時に `last_used_at` を更新。高頻度な認証経路の書き込みコストを抑えるため `SESSION_LASTUSED_THROTTLE_SECONDS`（既定 300 秒）でスロットルし、ベストエフォート（失敗で認証を妨げない） |
+| 一覧 | `GET /auth/sessions`。本人の有効セッション（期限切れ除外）を最終利用降順で返す。現在のセッションは**リクエスト由来のトークン**から算出して `current=true`（クライアント値に依存しない）。`id` は `session_id`（= SHA-256(token)・不可逆で認証突破に使えない） |
+| 個別失効 | `DELETE /auth/sessions/{session_id}`。所有権検証（`user_id` 一致）つき。他人のセッション・不在は `404`（存在秘匿）。失効後そのセッションは次回 `401` |
+| 一括失効 | `POST /auth/sessions/revoke-others`。現在以外を全失効（「他の全デバイスからログアウト」）。保持する現在セッションはリクエスト由来で算出 |
+| 監査ログ | 失効は既存 `session_revoke` アクションで記録。`details.scope` に `self_single` / `self_others`（件数）を入れて admin 失効と区別 |
+| FirestoreClient | `list_sessions_for_user` / `revoke_session`（所有権検証）/ `delete_sessions_for_user_except` / `update_session_last_used` を追加。所有権検証は `delete_credential`（Passkey）と同流儀 |
 
 ### 初期データ投入
 
@@ -267,6 +284,7 @@ sequenceDiagram
 |-----|-----|------|
 | `SESSION_TTL_HOURS` | 168（7 日） | セッションの有効期間。 |
 | `SESSION_COOKIE_SECURE` | true | Cookie の `Secure` 属性。ローカル http では false。 |
+| `SESSION_LASTUSED_THROTTLE_SECONDS` | 300（5 分） | 自分のセッション一覧用 `last_used_at` 更新のスロットル間隔（[ADR-041](../adr/041-self-service-session-management.md)）。 |
 | `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASS` | — | 初期 admin の資格情報（seed 用）。 |
 | `INITIAL_USER_USERNAME` / `INITIAL_USER_PASSWORD` | — | 初期 user の資格情報（seed 用）。 |
 | `PASSWORD_RESET_TOKEN_TTL_MINUTES` | 30 | リセットトークンの寿命（分・[ADR-026](../adr/026-self-service-password-reset.md)）。 |
